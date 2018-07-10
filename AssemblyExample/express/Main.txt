@@ -1,0 +1,61 @@
+;MASMPlus 代码模板 多 obj 链接
+;一个主工程,两个代码文件均独自编译为obj再与主程序链接.它比直接Include的好处是易于维护
+;这种模型常用于内部控件/函数库的程序.如果是小型模块比创建为DLL更好.
+;并且可以非常快速地输出为通用函数库.如何创建通用函数库,请选用 "Standard Library" 模板
+
+.386
+.Model Flat, StdCall
+Option Casemap :None
+
+Include windows.inc
+Include user32.inc
+Include kernel32.inc
+Include gdi32.inc
+
+includelib gdi32.lib
+IncludeLib user32.lib
+IncludeLib kernel32.lib
+include macro.asm
+
+	include Express.inc
+
+	WinMain    PROTO :DWORD,:DWORD,:DWORD,:DWORD
+	WndProc    PROTO :DWORD,:DWORD,:DWORD,:DWORD
+	
+.DATA
+	szFindStr	db "CF_WORD			equ        1h		;单词",13,10
+					db "CF_NUMBER		equ        2h		;数字",13,10
+					db "CF_HEX			equ        4h		;十六进制",13,10
+					db "CF_BIN			equ        8h		;二进制",13,10
+
+	
+	lpszFindExp	db "^{%+}.+equ.+{%+}($)|({?+[$]})",0		;查找双引号字串
+.DATA?
+	hInstance	dd ?
+	buffer		db MAX_PATH dup(?)
+	iCount		dd ?
+	lpRet			POINT 11 dup (<>)
+.CODE
+START:
+
+	invoke GetModuleHandle,NULL
+	mov hInstance,eax
+	invoke lstrlen,offset szFindStr
+	mov iCount,10
+	invoke ExpressSearch,0,offset szFindStr,eax,offset lpszFindExp,offset lpRet,offset iCount,EF_USEEXPRESS or EF_ENDISSIZE
+	.if sdword ptr eax>0
+		;开始替换
+		invoke DissectReplaceExp,CTXT("#define {1} {2} //{3}"),offset lpRet,offset iCount
+		invoke MessageBox,0,eax,CTXT("已经替换了"),MB_ICONINFORMATION
+	.elseif eax==0
+		invoke MessageBox,0,CTXT("没找到"),0,MB_ICONINFORMATION
+	.elseif eax==-1
+		
+	.elseif eax==-2
+		
+	.endif
+	
+	invoke ExitProcess,0
+
+
+END START

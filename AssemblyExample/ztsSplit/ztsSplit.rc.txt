@@ -1,0 +1,66 @@
+#include "c:\masm32\include\resource.h"
+
+;==============================================================================
+;  常量
+;==============================================================================
+
+#define        IDC_STATIC            -1
+
+#define        IDI_MAIN              900
+#define        IDI_FOLDER            901
+
+;----==== 简介型界面 ====----
+
+#define        IDC_RADIO_SPLIT       2001
+#define        IDC_RADIO_MERGE       2002
+#define        IDC_EDIT_FILE         2003
+#define        IDC_BTN_FILE          2004
+#define        IDC_EDIT_FOLDER       2005
+#define        IDC_BTN_FOLDER        2006
+#define        IDC_EDIT_SIZE         2007
+#define        IDC_RADIO_KB          2008
+#define        IDC_RADIO_MB          2009
+#define        IDC_BTN_START         2010
+#define        IDC_BTN_EXIT          2011
+#define        IDC_PROGRESS          2012
+
+;==============================================================================
+;  图标
+;==============================================================================
+
+IDI_MAIN              ICON              "res\\main.ico"
+IDI_FOLDER            ICON              "res\\folder.ico"
+
+;==============================================================================
+;  对话框
+;==============================================================================
+
+;----==== 简介型界面 ====----
+DLG_MAIN  DIALOGEX 0, 0, 189, 101
+STYLE     DS_CENTER |DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE   WS_EX_ACCEPTFILES
+CAPTION   "ztsSplit V1.10"
+FONT      9, "宋体"
+BEGIN
+    CONTROL         "分割文件",IDC_RADIO_SPLIT,"Button",BS_AUTORADIOBUTTON | 
+                    WS_GROUP,5,5,45,8
+    CONTROL         "合并文件",IDC_RADIO_MERGE,"Button",BS_AUTORADIOBUTTON,
+                    70,5,45,8
+    LTEXT           "文件",IDC_STATIC,5,23,17,8
+    EDITTEXT        IDC_EDIT_FILE,28,20,141,12,ES_AUTOHSCROLL
+    PUSHBUTTON      "…",IDC_BTN_FILE,167,20,17,12,0,WS_EX_STATICEDGE
+    LTEXT           "地址",IDC_STATIC,5,38,17,8
+    EDITTEXT        IDC_EDIT_FOLDER,28,36,141,12,ES_AUTOHSCROLL
+    PUSHBUTTON      "…",IDC_BTN_FOLDER,167,36,17,12,0,WS_EX_STATICEDGE
+    LTEXT           "大小",IDC_STATIC,5,54,17,8
+    EDITTEXT        IDC_EDIT_SIZE,28,52,55,12,ES_RIGHT | ES_AUTOHSCROLL | 
+                    ES_NUMBER
+    CONTROL         "KB",IDC_RADIO_KB,"Button",BS_AUTORADIOBUTTON | WS_GROUP,
+                    96,54,22,8
+    CONTROL         "MB",IDC_RADIO_MB,"Button",BS_AUTORADIOBUTTON,125,54,22,
+                    8
+    DEFPUSHBUTTON   "分割(&C)",IDC_BTN_START,5,82,50,14,0,WS_EX_STATICEDGE
+    PUSHBUTTON      "退出(&X)",IDC_BTN_EXIT,134,82,50,14,0,WS_EX_STATICEDGE
+    CONTROL         "Progress1",IDC_PROGRESS,"msctls_progress32",PBS_SMOOTH | 
+                    WS_BORDER,5,69,179,8
+END

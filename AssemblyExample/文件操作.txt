@@ -1,0 +1,864 @@
+标 题: 【原创】丢个文件操作的代码
+作 者: Winker
+时 间: 2007-05-16,02:56
+链 接: http://bbs.pediy.com/showthread.php?t=44617
+
+标 题: 【原创】文件操作
+作 者: winker
+时 间: 2007-05-16 02:56
+链 接: http://bbs.pediy.com/showthread.php?t=44617
+     
+     来到看雪有一年多了,程序都没有发布一个,现在丢个去年写的东东,是关于文件操作的,代码很简单...有很多代码都直接使用老罗的代码 各位高手千万别见笑  
+
+
+;******************************************************
+;程序编写by Asm
+;日期：2006-12-16日凌晨
+;出处：http://www.wolfexp.net/（红狼安全小组）
+;注意事项：如欲转载，请保持本程序的完整，并注明：
+;转载自 红狼安全小组(http://www.wolfexp.net/)
+;******************************************************
+
+.386
+.model flat, stdcall
+option casemap :none
+
+include    windows.inc
+include    user32.inc
+includelib  user32.lib
+include    kernel32.inc
+includelib  kernel32.lib
+include    shell32.inc
+includelib  shell32.lib
+include    comctl32.inc
+includelib  comctl32.lib
+includelib advapi32.lib
+include advapi32.inc
+include macros.inc
+
+_ChenLook proto :DWORD
+_ChangeNotification proto :DWORD,:DWORD,:LPSTR
+_GetOpenDirectoryName proto :LPSTR
+_StopDelFile proto :DWORD
+_ProcessFile  proto :DWORD,:DWORD,:LPSTR
+EnumINI proto  :DWORD,:LPSTR
+_EnablePrivilege proto :DWORD,:DWORD
+_ProcessDel proto :DWORD
+
+include data.asm
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    .code
+    
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;初始化列表框
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+InsertColumn proc 
+  LOCAL lvc:LV_COLUMN 
+    mov  eax,LVS_EX_FULLROWSELECT or LVS_EX_GRIDLINES or LVS_EX_SUBITEMIMAGES
+  invoke  SendMessage,hlistview,LVM_SETEXTENDEDLISTVIEWSTYLE,0,eax
+  mov lvc.imask,LVCF_TEXT+LVCF_WIDTH 
+  mov lvc.pszText,CTXT("文件完整路径") 
+  mov lvc.lx,170 
+  invoke SendMessage,hlistview, LVM_INSERTCOLUMN, 0, addr lvc
+  
+  or lvc.imask,LVCF_TEXT+LVCF_WIDTH
+  mov lvc.pszText,CTXT("文件危险特征")
+  mov lvc.lx,130
+  invoke SendMessage,hlistview, LVM_INSERTCOLUMN, 1 ,addr lvc 
+  
+  or lvc.imask,LVCF_TEXT+LVCF_WIDTH
+  mov lvc.pszText,CTXT("文件创建时间")
+  mov lvc.lx,125
+  invoke SendMessage,hlistview, LVM_INSERTCOLUMN, 2 ,addr lvc 
+  ret 
+InsertColumn endp 
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ShowProcessInfo proc uses edi row:DWORD, lpFileName:DWORD ,lpTezheng:DWORD ,lpFileTime:DWORD
+  LOCAL lvi:LV_ITEM 
+
+  LOCAL buffer[1024]:DWORD
+  LOCAL buffer1[1024]:DWORD
+
+   mov lvi.imask,LVIF_TEXT+LVIF_PARAM ;填充
+  push row 
+  pop lvi.iItem ;传递row的值为lvi.iItem,纪录列举的文件个数
+  mov lvi.iSubItem,0 
+  mov eax,lpFileName;保存文件名到eax.这里lpFileName不是指针，所以用mov。如果是指针，用lea
+  mov lvi.pszText,eax;用文件名填充lvi.pszText
+  push row 
+  pop lvi.lParam;传递row的值为lParam
+  invoke SendMessage,hlistview, LVM_INSERTITEM,0, addr lvi ;输出每个文件名
+;***********************************************************
+  mov lvi.imask,LVIF_TEXT 
+  inc lvi.iSubItem 
+  invoke wsprintf,addr buffer,CTXT("%s"),lpTezheng
+  lea eax,buffer
+  mov lvi.pszText,eax 
+  invoke SendMessage,hlistview,LVM_SETITEM, 0,addr lvi
+;***********************************************************
+  mov lvi.imask,LVIF_TEXT 
+  inc lvi.iSubItem 
+  invoke wsprintf,addr buffer1,CTXT("%s"),lpFileTime
+  lea eax,buffer1
+  mov lvi.pszText,eax 
+  invoke SendMessage,hlistview,LVM_SETITEM, 0,addr lvi
+;***********************************************************
+  ret 
+ShowProcessInfo endp 
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;打开目录对话框
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+GetOpenDirectoryName   proc  
+      pushad   
+      invoke   RtlZeroMemory,addr binfo,sizeof binfo 
+      mov   binfo.ulFlags,BIF_RETURNFSANCESTORS or BIF_RETURNONLYFSDIRS   
+      invoke   SHBrowseForFolder,addr binfo   
+      invoke   SHGetPathFromIDList,eax,addr szPath  
+      popad   
+ret
+GetOpenDirectoryName endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; 处理找到的文件
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ProcessFile  proc  _lpszFile,_ServerKey,_htoun:LPSTR
+                  local   @hFile,@dwFileSize,@hMapFile,@lpMemory
+                  local lpCreationTime:FILETIME
+                  local SystemTime:SYSTEMTIME
+                  pushad
+                   invoke  CreateFile,_lpszFile,GENERIC_READ,\ ;打开找到的文件
+                            FILE_SHARE_READ or FILE_SHARE_WRITE,NULL,\
+                            OPEN_EXISTING,FILE_ATTRIBUTE_ARCHIVE,NULL
+                    .if     eax !=  INVALID_HANDLE_VALUE
+                            mov     @hFile,eax
+                            invoke  GetFileSize,eax,NULL
+                            mov     @dwFileSize,eax
+                            .if     eax
+                           invoke  CreateFileMapping,@hFile,\
+                                    NULL,PAGE_READONLY,0,0,NULL
+                            .if     eax
+                                    mov     @hMapFile,eax
+                                    invoke  MapViewOfFile,eax,\
+                                            FILE_MAP_READ,0,0,0
+                                    .if     eax
+                                            mov     @lpMemory,eax
+                                        
+invoke lstrlen,_ServerKey
+  dec eax
+  mov  ecx, @dwFileSize;保存文件长度
+  sub  ecx,eax;子字符串长度减 1
+  mov  esi,@lpMemory ;保存共享句柄
+  inc eax
+@@:
+  mov  edi,_ServerKey;保存要检测的特征码
+  push ecx
+  push esi
+  mov  ecx,eax; 子字符串长度
+  repe cmp**;这里对比，如果不符合，就继续
+  pop  esi
+  pop  ecx
+  je  @f
+  inc  esi
+  loop @b
+@@:
+.if ecx != 0 ;找到了特征码
+invoke RtlZeroMemory,addr szFileTime,sizeof szFileTime
+invoke GetFileTime,@hFile,addr lpCreationTime,NULL,NULL
+invoke FileTimeToSystemTime,addr lpCreationTime,addr SystemTime
+movzx eax,SystemTime.wYear
+movzx ecx,SystemTime.wMonth
+movzx ebx,SystemTime.wDay
+invoke wsprintf,addr szFileTime,CTXT("%d年%d月%d日"),eax,ecx,ebx
+invoke ShowProcessInfo,_htoun,_lpszFile,_ServerKey,addr szFileTime
+popad
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;这里是共享映像的句柄结束
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+          invoke  UnmapViewOfFile,@lpMemory ;这里是读取共享映像的句柄结束
+          .endif
+;********************************************************************
+   invoke  CloseHandle,@hMapFile ;这里是打开共享映像的句柄结束
+   .endif
+   .endif 
+    invoke  CloseHandle,@hFile
+   .endif  
+   mov   eax , TRUE
+   ret
+_ProcessFile  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+EnumINI  proc _FileToEnum,_Count:LPSTR
+    local  @szBuffer[1256]:byte
+    pushad
+;********************************************************************
+; 读取 Section 列表并循环处理
+;********************************************************************
+    invoke  GetPrivateProfileSectionNames,addr szBuffer1,\
+      sizeof szBuffer1,addr szProfileName
+    xor eax,eax
+    mov  ebx,offset szBuffer1
+    .while  byte ptr [ebx]
+;********************************************************************
+; 读取 Key 列表并循环显示
+;********************************************************************
+      invoke  GetPrivateProfileSection,ebx,addr szBuffer2,\
+        sizeof szBuffer2,addr szProfileName
+      invoke  _ProcessFile,_FileToEnum,addr szBuffer2,_Count;根据枚举的特征码对找到的文件进行处理
+      invoke  lstrlen,ebx
+      add  ebx,eax
+      inc  ebx
+    .endw
+    popad
+    ret
+EnumINI  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_GetPosition  proc
+    local  @szBuffer[512]:byte
+    pushad
+;********************************************************************
+; 将当前路径和 ini 文件名组合起来
+;********************************************************************
+    invoke  GetCurrentDirectory,MAX_PATH,addr szProfileName
+    mov  ebx,offset szProfileName
+    invoke  lstrlen,ebx
+    mov  ecx,CTXT("\ServerKey.ini")
+    .if  byte ptr [ebx+eax-1] == '\'
+      inc  ecx
+    .endif
+    invoke  lstrcat,ebx,ecx
+;********************************************************************
+; 读存放在 ini 文件中的数据
+;********************************************************************
+    invoke  GetPrivateProfileInt,CTXT("ServerKye"),\
+      0,50,addr szProfileName
+    push  eax
+    invoke  GetPrivateProfileInt,CTXT("ServerKye"),\
+      0,50,addr szProfileName
+    pop  ecx
+    invoke  SetWindowPos,hWinMain,HWND_TOP,ecx,eax,0,0,SWP_NOSIZE
+    popad
+    ret
+
+_GetPosition  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_FindFile  proc  _lpszPath
+    local  @stFindFile:WIN32_FIND_DATA
+    local  @hFindFile
+    local  @szPath[MAX_PATH]:byte    ;用来存放“路径\”
+    local  @szSearch[MAX_PATH]:byte  ;用来存放“路径\*.*”
+    local  @szFindFile[1025]:byte  ;用来存放“路径\找到的文件”
+      local hWnd
+    pushad
+    invoke RtlZeroMemory,addr @szPath,sizeof @szPath
+    invoke RtlZeroMemory,addr @szSearch,sizeof @szSearch
+    invoke  lstrcpy,addr @szPath,_lpszPath
+;********************************************************************
+; 在路径后面加上\*.*
+;********************************************************************
+    @@:
+    invoke  lstrlen,addr @szPath
+    lea  ecx,@szPath
+    add  ecx,eax
+    xor  eax,eax
+    mov  al,'\'
+    .if  byte ptr [ecx-1] != al
+      mov  word ptr [ecx],ax
+    .endif
+    invoke  lstrcpy,addr @szSearch,addr @szPath
+    invoke  lstrcat,addr @szSearch,CTXT("*.*")
+;********************************************************************
+; 寻找文件
+;********************************************************************
+    invoke  FindFirstFile,addr @szSearch,addr @stFindFile
+    .if  eax !=  INVALID_HANDLE_VALUE
+      mov  @hFindFile,eax
+      .repeat
+      ;      invoke RtlZeroMemory,addr @szFindFile,sizeof @szFindFile
+        invoke  SendMessage, hProgress, PBM_SETPOS,30, 0
+        invoke  lstrcpy,addr @szFindFile,addr @szPath
+        invoke  lstrcat,addr @szFindFile,addr @stFindFile.cFileName
+        .if  @stFindFile.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ;找到的是目录吗？
+          .if  @stFindFile.cFileName != '.'
+            inc  dwFolderCount
+            invoke  _FindFile,addr @szFindFile ;如果找到的是目录，就递归继续找
+          .endif
+        .else
+        invoke  SendMessage, hProgress, PBM_SETPOS,50, 0
+          invoke  _GetPosition
+            invoke  EnumINI,addr @szFindFile,dwFolderCount
+          invoke  SendMessage, hProgress, PBM_SETPOS,70, 0
+        .endif
+        invoke  FindNextFile,@hFindFile,addr @stFindFile
+      .until  eax == FALSE
+      invoke  FindClose,@hFindFile  
+    .endif
+    popad
+  ;  invoke SetDlgItemText,hWinMain,IDC_Lujing,dwFolderCount
+    invoke  SendMessage, hProgress, PBM_SETPOS,100, 0
+    ret
+_FindFile  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_FindFileTyte  proc  _lpszPath
+    local  @stFindFile:WIN32_FIND_DATA
+    local  @hFindFile
+    local  @szPath[MAX_PATH]:byte    ;用来存放“路径\”
+    local  @szSearch[MAX_PATH]:byte  ;用来存放“路径\*.*”
+    local  @szFindFile[1025]:byte  ;用来存放“路径\找到的文件”
+      local hWnd
+    pushad
+    invoke RtlZeroMemory,addr @szPath,sizeof @szPath
+    invoke RtlZeroMemory,addr @szSearch,sizeof @szSearch
+    invoke  lstrcpy,addr @szPath,_lpszPath
+;********************************************************************
+; 在路径后面加上\*.*
+;********************************************************************
+    @@:
+    invoke  lstrlen,addr @szPath
+    lea  ecx,@szPath
+    add  ecx,eax
+    xor  eax,eax
+    mov  al,'\'
+    .if  byte ptr [ecx-1] != al
+      mov  word ptr [ecx],ax
+    .endif
+    invoke  lstrcpy,addr @szSearch,addr @szPath
+    invoke  lstrcat,addr @szSearch,addr szPath1 ;...............................
+;********************************************************************
+; 寻找文件
+;********************************************************************
+    invoke  FindFirstFile,addr @szSearch,addr @stFindFile
+    .if  eax !=  INVALID_HANDLE_VALUE
+      mov  @hFindFile,eax
+      .repeat
+      ;      invoke RtlZeroMemory,addr @szFindFile,sizeof @szFindFile
+        invoke  SendMessage, hProgress, PBM_SETPOS,30, 0
+        invoke  lstrcpy,addr @szFindFile,addr @szPath
+        invoke  lstrcat,addr @szFindFile,addr @stFindFile.cFileName
+        .if  @stFindFile.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ;找到的是目录吗？
+          .if  @stFindFile.cFileName != '.'
+            inc  dwFolderCount
+            invoke  _FindFileTyte,addr @szFindFile ;如果找到的是目录，就递归继续找
+          .endif
+        .else
+        invoke  SendMessage, hProgress, PBM_SETPOS,50, 0
+          invoke  _GetPosition
+            invoke  EnumINI,addr @szFindFile,dwFolderCount
+          invoke  SendMessage, hProgress, PBM_SETPOS,70, 0
+        .endif
+        invoke  FindNextFile,@hFindFile,addr @stFindFile
+      .until  eax == FALSE
+      invoke  FindClose,@hFindFile  
+    .endif
+    popad
+  ;  invoke SetDlgItemText,hWinMain,IDC_Lujing,dwFolderCount
+    invoke  SendMessage, hProgress, PBM_SETPOS,100, 0
+    ret
+_FindFileTyte  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ChenLook proc _FileLook
+local stStartUp:STARTUPINFO
+local stProcInfo:PROCESS_INFORMATION
+invoke RtlZeroMemory,addr szLookFile,sizeof szLookFile
+invoke lstrcat,addr szLookFile,addr szName
+invoke lstrcat,addr szLookFile,_FileLook
+invoke  GetStartupInfo,addr stStartUp
+    invoke  CreateProcess,NULL,addr szLookFile,NULL,NULL,NULL,\
+      NORMAL_PRIORITY_CLASS,NULL,NULL,addr stStartUp,addr stProcInfo
+ret
+_ChenLook endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_GetOpenDirectoryName   proc _Path
+      pushad   
+      invoke   RtlZeroMemory,addr binfo,sizeof binfo 
+      mov   binfo.ulFlags,BIF_RETURNFSANCESTORS or BIF_RETURNONLYFSDIRS   
+      invoke   SHBrowseForFolder,addr binfo   
+      invoke   SHGetPathFromIDList,eax,_Path  
+      popad   
+ret
+_GetOpenDirectoryName endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;目录监视函数
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ChangeNotification proc _Windows,_FileNameFor,asm
+        invoke FindResource,NULL,asm,RT_RCDATA;查找ＡＳＭ资源
+                      mov hRsrc,eax
+       invoke SizeofResource,NULL,hRsrc;　获取资源长度
+       mov dwSize,eax
+       invoke LoadResource,NULL,hRsrc;装载资源
+       mov hResData,eax
+       invoke GlobalAlloc,GPTR,dwSize;给数据分配内存
+        mov lpData,eax
+       invoke LockResource,hResData;锁定它
+       mov lpRes,eax
+       invoke CreateFile,_FileNameFor,GENERIC_WRITE,FILE_SHARE_READ,\
+       NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL ;打开文件
+       .if eax != NULL
+              mov hFile,eax
+       invoke WriteFile,hFile,lpRes,dwSize,addr dwSizeWritten,NULL;把二进制写进去
+       invoke CloseHandle,hRsrc
+       invoke CloseHandle,hResData
+       invoke CloseHandle,hFile
+       invoke GlobalFree,lpData
+       .endif
+       invoke CreateFile,_FileNameFor,GENERIC_READ or GENERIC_WRITE,\ ;打开它
+  FILE_SHARE_READ or FILE_SHARE_WRITE,NULL,OPEN_EXISTING, \             
+  FILE_ATTRIBUTE_NORMAL,NULL                     
+  .if eax!=INVALID_HANDLE_VALUE
+  mov hFile, eax ;保存句柄             
+invoke CreateFileMapping,hFile,NULL,PAGE_READWRITE,0,0,NULL ;建立内存共享
+  .if eax!=NULL
+  mov hMapView,eax ;保存句柄
+invoke MapViewOfFile,hMapView,FILE_MAP_WRITE,0,0,NULL ;读取内存共享
+  .if eax!=NULL
+mov pMapView,eax ;保存句柄
+xor edi,edi
+  mov edi,pMapView    ;获取初始地址
+  add edi,00092eh
+invoke lstrcpy,edi,_Windows;修改，等关闭句柄，系统自动保存
+.endif
+invoke UnmapViewOfFile,pMapView ;解除文件映射
+  .endif
+  invoke CloseHandle,hMapView    ;关闭内存映射文件
+  .endif
+  invoke CloseHandle,hFile       ;关闭文件
+  ret
+_ChangeNotification endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_StopDelFile proc _DelFile
+invoke   RtlZeroMemory,addr stProcess,sizeof stProcess;清空内存
+mov   stProcess.dwSize,sizeof stProcess
+invoke   CreateToolhelp32Snapshot,TH32CS_SNAPPROCESS,addr stProcess
+mov   hSnapShot,eax
+invoke   Process32First,hSnapShot,addr stProcess
+    .while   eax
+        invoke CompareString,LOCALE_USER_DEFAULT,NORM_IGNORECASE,_DelFile,-1,addr stProcess.szExeFile,-1
+        .if eax==2
+          push   stProcess.th32ProcessID
+          pop   Pid
+      .endif
+        invoke   Process32Next,hSnapShot,addr stProcess
+    .endw
+invoke OpenProcess,PROCESS_TERMINATE,FALSE,Pid   
+.if  eax
+mov  ebx,eax
+invoke  TerminateProcess,ebx,-1
+invoke  CloseHandle,ebx
+.endif
+invoke  Sleep,1000
+invoke RtlZeroMemory,addr szCurrent,sizeof szCurrent
+invoke RtlZeroMemory,addr szCurrent1,sizeof szCurrent1
+invoke GetCurrentDirectory,200,addr szCurrent
+invoke lstrcat,addr szCurrent1,addr szCurrent
+invoke lstrcat,addr szCurrent1,CTXT("\")
+invoke lstrcat,addr szCurrent1,_DelFile
+invoke DeleteFile,addr szCurrent1
+ret
+_StopDelFile endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_EnablePrivilege proc szPriv:DWORD, bFlags:DWORD
+    LOCAL   hToken
+    LOCAL   tkp : TOKEN_PRIVILEGES
+    
+    invoke GetCurrentProcess ;GetCurrentProcess获得当前进程的HANDLE
+    mov   edx, eax
+    invoke OpenProcessToken, edx, TOKEN_ADJUST_PRIVILEGES or TOKEN_QUERY, addr hToken ;获取进程访问令牌
+    invoke LookupPrivilegeValue, NULL,szPriv, addr tkp.Privileges.Luid;一个权限对应的LUID值
+    mov   tkp.PrivilegeCount, 1
+    xor   eax, eax
+    .if bFlags
+          mov   eax, SE_PRIVILEGE_ENABLED
+    .endif
+    mov   tkp.Privileges.Attributes, eax
+    invoke AdjustTokenPrivileges, hToken, FALSE, addr tkp, 0, 0, 0 ;对这个访问令牌进行修改
+    push   eax
+    invoke CloseHandle, hToken
+    pop   eax
+    ret
+_EnablePrivilege endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_Process proc
+invoke   RtlZeroMemory,addr stProcess,sizeof stProcess;清空内存
+invoke SendDlgItemMessage,hWinProce,IDC_22,LB_RESETCONTENT,0,0
+mov   stProcess.dwSize,sizeof stProcess
+invoke   CreateToolhelp32Snapshot,TH32CS_SNAPPROCESS,addr stProcess
+mov   hSnapShot,eax
+invoke   Process32First,hSnapShot,addr stProcess
+    .while   eax
+       invoke SendDlgItemMessage,hWinProce,IDC_22,LB_ADDSTRING,0,addr stProcess.szExeFile
+       push stProcess.th32ProcessID
+       pop closepid
+        invoke   Process32Next,hSnapShot,addr stProcess
+      .endw    
+    ret
+_Process endp  
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ProcessDel proc _ProName
+invoke   RtlZeroMemory,addr stProcess,sizeof stProcess;清空内存
+mov   stProcess.dwSize,sizeof stProcess
+invoke   CreateToolhelp32Snapshot,TH32CS_SNAPPROCESS,addr stProcess
+mov   hSnapShot,eax
+  
+invoke   Process32First,hSnapShot,addr stProcess
+    .while   eax
+    invoke CompareString,LOCALE_USER_DEFAULT,NORM_IGNORECASE,_ProName,-1,addr stProcess.szExeFile,-1
+        .if eax==2
+        push   stProcess.th32ProcessID
+          pop   closepid
+      .endif
+            invoke   Process32Next,hSnapShot,addr stProcess
+    .endw
+    
+       invoke OpenProcess,PROCESS_TERMINATE,FALSE,closepid
+      .if  eax
+     mov  ebx,eax
+     invoke  TerminateProcess,ebx,-1
+     .endif
+    ret
+_ProcessDel endp 
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ProcDlg  proc  uses ebx edi esi hWnd,wMsg,wParam,lParam
+
+    mov  eax,wMsg
+    .if  eax == WM_CLOSE
+      invoke  EndDialog,hWnd,NULL
+    .elseif  eax == WM_INITDIALOG
+      invoke  LoadIcon,hInstance,ICO_MAIN
+      invoke  SendMessage,hWnd,WM_SETICON,ICON_BIG,eax
+    .elseif  eax == WM_COMMAND
+      mov  eax,wParam
+      .if  eax == IDC_15
+        invoke _GetOpenDirectoryName,addr szDirectory
+        invoke  SetDlgItemText,hWnd,IDC_11,addr szDirectory
+        invoke  GetDlgItemText,hWnd,IDC_11,addr szName1,MAX_PATH
+        
+      .elseif  eax == IDC_16
+        invoke _GetOpenDirectoryName,addr szDirectory1
+        invoke  SetDlgItemText,hWnd,IDC_12,addr szDirectory1
+        invoke  GetDlgItemText,hWnd,IDC_12,addr szName2,MAX_PATH
+        
+      .elseif  eax == IDC_17
+        invoke _GetOpenDirectoryName,addr szDirectory2
+        invoke  SetDlgItemText,hWnd,IDC_13,addr szDirectory2
+        invoke  GetDlgItemText,hWnd,IDC_13,addr szName3,MAX_PATH
+                
+      .elseif  eax == IDC_18
+        invoke _GetOpenDirectoryName,addr szDirectory3
+        invoke  SetDlgItemText,hWnd,IDC_14,addr szDirectory3
+        invoke  GetDlgItemText,hWnd,IDC_14,addr szName4,MAX_PATH
+        
+      .elseif eax == IDC_19
+        invoke lstrlen,addr szName1
+        .if eax!=NULL
+        invoke _ChangeNotification,addr szName1,CTXT("目录监视程序2.exe"),ASM2
+        invoke ShellExecute,0,0,CTXT("目录监视程序2.exe"),0,0,SW_SHOW
+        .endif
+        
+        invoke lstrlen,addr szName2
+        .if eax!=NULL
+        invoke _ChangeNotification,addr szName2,CTXT("目录监视程序3.exe"),ASM3
+        invoke ShellExecute,0,0,CTXT("目录监视程序3.exe"),0,0,SW_SHOW
+        .endif
+        
+        invoke lstrlen,addr szName3
+        .if eax!=NULL
+        invoke _ChangeNotification,addr szName3,CTXT("目录监视程序4.exe"),ASM4
+        invoke ShellExecute,0,0,CTXT("目录监视程序4.exe"),0,0,SW_SHOW
+        .endif
+        
+        invoke lstrlen,addr szName4
+        .if eax!=NULL
+        invoke _ChangeNotification,addr szName4,CTXT("目录监视程序5.exe"),ASM5
+        invoke ShellExecute,0,0,CTXT("目录监视程序5.exe"),0,0,SW_SHOW
+        .endif
+      .elseif eax == IDC_20
+        invoke _StopDelFile,CTXT("目录监视程序2.exe")
+        invoke _StopDelFile,CTXT("目录监视程序3.exe")
+        invoke _StopDelFile,CTXT("目录监视程序4.exe")
+        invoke _StopDelFile,CTXT("目录监视程序5.exe")
+        invoke  MessageBox,NULL,CTXT("所有监控完全停止,监控程序已经从电脑中移除"),CTXT("title"),MB_ICONINFORMATION
+      .endif
+    .else
+      mov  eax,FALSE
+      ret
+    .endif
+    mov  eax,TRUE
+    ret
+
+_ProcDlg  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ProcLook  proc  uses ebx edi esi hWinMain1,wMsg,wParam,lParam
+local @szBuffer[MAX_PATH]:BYTE
+    mov  eax,wMsg
+    .if  eax == WM_CLOSE
+      invoke  EndDialog,hWinMain1,NULL
+    .elseif  eax == WM_INITDIALOG
+      invoke  LoadIcon,hInstance,ICO_MAIN
+      invoke  SendMessage,hWinMain1,WM_SETICON,ICON_BIG,eax
+      invoke _EnablePrivilege,CTXT("SeDebugPrivilege"),TRUE
+    .elseif  eax == WM_COMMAND
+      mov  eax,wParam
+      push hWinMain1
+      pop hWinProce
+      .if eax == IDC_23
+      invoke CreateThread,NULL,0,addr _Process,NULL,0,addr ThreadId2
+      .elseif  ax == IDC_22
+        shr  eax,16
+        .if  ax ==  LBN_SELCHANGE
+;********************************************************************
+; 将鼠标点击结果显示在文本框中
+;********************************************************************
+          invoke  SendMessage,lParam,LB_GETCURSEL,0,0
+          lea  ecx,@szBuffer
+          invoke  SendMessage,lParam,LB_GETTEXT,eax,ecx
+          invoke SetDlgItemText,hWinMain1,IDC_25,addr @szBuffer
+        .endif
+      .elseif eax == IDC_24
+        invoke GetDlgItemText,hWinMain1,IDC_25,addr szProcess,sizeof szProcess
+        invoke lstrlen,addr szProcess
+        .if eax==NULL
+        invoke MessageBox,hWinMain1,CTXT("请输入进程名称"),NULL,MB_ICONSTOP
+        .elseif
+          invoke _ProcessDel,addr szProcess
+          .endif
+        .endif
+    .else
+      mov  eax,FALSE
+      ret
+    .endif
+    mov  eax,TRUE
+    ret
+
+_ProcLook  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ProcDlgMain  proc  uses ebx edi esi hWnd,wMsg,wParam,lParam
+local  @dwTemp,@szBuffer[MAX_PATH]:BYTE
+    local  @szBuffer1[128]:byte
+    local  @szTextBuff[2048]:byte
+    local  @stFindFile:WIN32_FIND_DATA
+    mov  eax,wMsg
+    .if  eax == WM_CLOSE
+      invoke  EndDialog,hWnd,NULL
+    .elseif  eax == WM_INITDIALOG
+      push hWnd
+      pop hWinMain
+      push hWnd
+      pop hlistview
+      invoke InsertColumn
+      invoke  LoadIcon,hInstance,ICO_MAIN
+      invoke  SendMessage,hWnd,WM_SETICON,ICON_BIG,eax
+      invoke  GetDlgItem, hWnd, IDC_PROGRESS
+       mov     hProgress, eax
+       invoke  GetDlgItem,hWnd,IDC_List
+      mov   hlistview, eax
+      invoke InsertColumn
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.asp")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.aspx")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.php")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.jsp")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.htm")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.html")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.jpg")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.js")
+      invoke  SendDlgItemMessage,hWnd,IDC_COMBO1,CB_ADDSTRING,0,CTXT("*.gif")
+    .elseif  eax == WM_COMMAND
+      mov  eax,wParam
+      .if  eax == IDC_Look
+      invoke  GetDlgItemText,hWnd,IDC_Directory,addr @szBuffer,MAX_PATH
+      call   GetOpenDirectoryName
+      invoke  SetDlgItemText,hWnd,IDC_Directory,addr szPath
+      .elseif  eax ==  IDOK
+        invoke SendDlgItemMessage,hWnd,IDC_List,0,0,0
+          invoke  GetDlgItemText,hWnd,IDC_Directory,addr szPath,MAX_PATH
+          invoke lstrlen,addr szPath
+          .if eax == NULL
+            invoke MessageBox,NULL,CTXT("'请填写目录路径"),NULL,MB_ICONSTOP
+            .elseif
+          invoke  GetDlgItemText,hWnd,IDC_COMBO1,addr szPath1,MAX_PATH  
+          invoke lstrlen,addr szPath1
+          .if eax==NULL
+          invoke SendDlgItemMessage,hWnd,IDC_List,LB_RESETCONTENT,0,0
+               invoke CreateThread,NULL,0,addr _FindFile,addr szPath,0,addr ThreadId1
+               invoke  SendMessage, hProgress, PBM_SETPOS,100, 0
+               .elseif 
+               invoke SendDlgItemMessage,hWnd,IDC_List,LB_RESETCONTENT,0,0
+               invoke CreateThread,NULL,0,addr _FindFileTyte,addr szPath,0,addr ThreadId3
+               invoke  SendMessage, hProgress, PBM_SETPOS,100, 0
+               .endif
+               .endif
+;*****************************************************************
+      .elseif eax == IDC_Check
+      invoke  GetDlgItemText,hWnd,IDC_KeYi,addr szFileLook,MAX_PATH  
+      invoke  FindFirstFile,addr szFileLook,addr @stFindFile  
+         .if eax == INVALID_HANDLE_VALUE
+         invoke MessageBox,NULL,CTXT("找不到文件,请确定路径是否正确!"),NULL,MB_ICONSTOP
+         .elseif
+         invoke CreateThread,NULL,0,addr _ChenLook,addr szFileLook,0,addr ThreadId
+      .endif
+      .elseif eax == IDC_Del
+      invoke  GetDlgItemText,hWnd,IDC_KeYi,addr szFileLook,MAX_PATH
+         invoke  FindFirstFile,addr szFileLook,addr @stFindFile  
+         .if eax == INVALID_HANDLE_VALUE
+         invoke MessageBox,NULL,CTXT("找不到文件,请确定路径是否正确!"),NULL,MB_ICONSTOP
+         .elseif
+      invoke DeleteFile,addr szFileLook
+      invoke  MessageBox,hWnd,CTXT("文件删除成功!"),CTXT("title"),MB_ICONINFORMATION
+      .endif
+      .elseif  ax == IDC_List
+        shr  eax,16
+        .if  ax ==  LBN_SELCHANGE
+;********************************************************************
+; 将鼠标点击结果显示在文本框中
+;********************************************************************
+          invoke  SendMessage,lParam,LB_GETCURSEL,0,0
+          lea  ecx,@szBuffer
+          invoke  SendMessage,lParam,LB_GETTEXT,eax,ecx
+          invoke  SetDlgItemText,hWnd,IDC_24,addr @szBuffer
+        .endif
+      .elseif eax == IDC_Out
+      invoke MessageBox,NULL,addr szabout,CTXT("关于工具的一点说明"),MB_ICONINFORMATION  
+      .elseif eax == IDC_JianShi
+        invoke  DialogBoxParam,hInstance,DLG_EDIT,NULL,offset _ProcDlg,NULL
+        .elseif eax == IDC_ShuoMing
+          invoke MessageBox,hWnd,addr Shuo,CTXT("说明"),MB_ICONINFORMATION
+          .elseif eax == IDC_21
+        invoke  DialogBoxParam,hInstance,DLG_LOOK,NULL,offset _ProcLook,NULL
+      .endif
+;********************************************************************
+    .else
+      mov  eax,FALSE
+      ret
+    .endif
+    mov  eax,TRUE
+    ret
+_ProcDlgMain  endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+start:
+    invoke  GetModuleHandle,NULL
+    mov    hInstance,eax
+    invoke  DialogBoxParam,hInstance,DLG_MAIN,NULL,offset _ProcDlgMain,NULL
+    invoke  ExitProcess,NULL
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    end  start
+
+
+
+RC:
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#include    <resource.h>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#define  ICO_MAIN          1000  //图标
+#define  DLG_MAIN    1    //  主窗口  对话框
+#define  DLG_EDIT    2    //  编辑规则对话框
+#define  DLG_LOOK    3
+#define  IDC_Look           1001
+#define  IDC_Directory        1002
+#define  IDC_KeYi            1003
+#define  IDC_Check            1004
+#define  IDC_Del           1005
+#define  IDC_List            1006
+#define  IDC_PROGRESS            1007
+#define  IDC_Out              1008
+#define  IDC_JianShi              1009
+#define  IDC_ShuoMing              1010
+#define  IDC_11             1011
+#define  IDC_12              1012
+#define  IDC_13              1013
+#define  IDC_14              1014
+#define  IDC_15              1015
+#define  IDC_16              1016
+#define  IDC_17              1017
+#define  IDC_18              1018
+#define  IDC_19              1019
+#define  IDC_20              1020
+#define  IDC_21              1021
+#define  IDC_22              1022
+#define  IDC_23              1023
+#define  IDC_24              1024
+#define  IDC_25              1025
+#define IDC_Lujing        1026
+#define IDC_COMBO1      1027
+#define ASM2     102
+#define ASM3     103
+#define ASM4     104
+#define ASM5     105
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ICO_MAIN  ICON    "main.ico"
+ASM2     RCDATA   DISCARDABLE "目录监视程序2.exe"
+ASM3    RCDATA   DISCARDABLE  "目录监视程序3.exe"
+ASM4     RCDATA   DISCARDABLE "目录监视程序4.exe"
+ASM5     RCDATA   DISCARDABLE "目录监视程序5.exe"
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+DLG_MAIN DIALOG 50,50, 314, 286
+STYLE  DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+CAPTION "脚本木马扫描器v1.3 By Asm"
+FONT 9, "宋体"
+STYLE 0x14CA0000
+EXSTYLE 0x00000001
+{
+    GROUPBOX        "检测WEB目录", -1,15,9,194,57
+    LTEXT           "需要检测的目录:", -1,19,23,62,9
+    EDITTEXT        IDC_Directory,82,22,96,12,ES_AUTOHSCROLL | W***ORDER | WS_TABSTOP
+    PUSHBUTTON      "浏览",IDC_Look,181,20,22,15
+    LTEXT           "查看可疑文件:", -1,19,43,62,9
+    EDITTEXT        IDC_KeYi,72,42,80,12,ES_AUTOHSCROLL | W***ORDER | WS_TABSTOP
+    PUSHBUTTON      "查看",IDC_Check,155,40,22,15
+    PUSHBUTTON      "删除",IDC_Del,181,40,22,15
+   // LTEXT           "可疑文件列表:", -1,15,111,52,9
+    CONTROL         "List1",IDC_List,"SysListView32",LVS_REPORT |
+                    LVS_SHOWSELALWAYS | W***ORDER | WS_TABSTOP,15,111,286,145
+    PUSHBUTTON      "开始检测",IDOK,75,265,37,15
+    CONTROL         "进程2",IDC_PROGRESS,"msctls_progress32",PBS_SMOOTH |W***ORDER,220,265,80,11
+    PUSHBUTTON      "关于程序",IDC_Out,115,265,37,15
+    GROUPBOX        "目录监视设置", -1,210,9,90,57
+    PUSHBUTTON      "设置要监视的目录",IDC_JianShi,220,20,70,15
+    PUSHBUTTON      "说明",IDC_ShuoMing,220,40,70,15
+    PUSHBUTTON      "进程枚举",IDC_21,155,265,57,15
+ //   LTEXT           "文件个数:", -1,15,265,52,9
+  //  EDITTEXT IDC_Lujing,50,265,10,10,ES_AUTOHSCROLL | W***ORDER | WS_TABSTOP
+    GROUPBOX        "扫描设置", -1,15,71,285,35
+    LTEXT           "设置扫描文件类型(如果没有,则默认扫描所有文件):", -1,18,85,199,19
+    COMBOBOX        IDC_COMBO1,220, 85, 67, 72, CBS_DROPDOWN | CBS_SORT | WS_VSCROLL
+    
+}
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+DLG_EDIT DIALOG 50, 20, 187, 119
+STYLE DS_MODALFRAME | WS_MINIMIZEBOX | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "目录监视设置"
+FONT 9, "宋体"
+{
+GROUPBOX        "设置信息:", -1,13,3,161,84
+
+CONTROL "", IDC_11, EDIT, ES_LEFT | WS_CHILD | WS_VISIBLE | W***ORDER | WS_TABSTOP, 17,20,121,12
+CONTROL "", IDC_12, EDIT, ES_LEFT | WS_CHILD | WS_VISIBLE | W***ORDER | WS_TABSTOP, 17,37,121,12
+CONTROL "", IDC_13, EDIT, ES_LEFT | WS_CHILD | WS_VISIBLE | W***ORDER | WS_TABSTOP, 17,52,121,12
+CONTROL "", IDC_14, EDIT, ES_LEFT | WS_CHILD | WS_VISIBLE | W***ORDER | WS_TABSTOP, 17,69,121,12
+
+CONTROL "浏览", IDC_15, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 142,20,26,13
+CONTROL "浏览", IDC_16, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 142,36,26,13
+CONTROL "浏览", IDC_17, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 142,52,26,13
+CONTROL "浏览", IDC_18, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 142,68,26,13
+
+CONTROL "开始监视", IDC_19, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 110,91,63,14
+CONTROL "停止监视", IDC_20, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 45,91,63,14
+}
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+DLG_LOOK DIALOG 50, 50, 310, 180
+STYLE DS_MODALFRAME | WS_MINIMIZEBOX | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "进程枚举列表："
+FONT 9, "宋体"
+{
+CONTROL "", IDC_22, LISTBOX, LBS_STANDARD, 15,8,282,144
+CONTROL "开始枚举", IDC_23, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP,225,158,37,15
+CONTROL "结束进程", IDC_24, BUTTON, BS_PUSHBUTTON | WS_CHILD | WS_VISIBLE | WS_TABSTOP,185,158,37,15
+LTEXT   "请输入进程名:", -1,15,158,137,12
+CONTROL "", IDC_25, EDIT, ES_AUTOHSCROLL | W***ORDER | WS_TABSTOP,75,158,105,12
+}

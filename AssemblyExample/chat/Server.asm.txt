@@ -1,0 +1,410 @@
+				.386
+				.model	flat,stdcall
+				option	casemap:none
+include	windows.inc
+include	user32.inc
+include	kernel32.inc
+includelib	user32.lib
+includelib	kernel32.lib
+include	ws2_32.inc
+includelib ws2_32.lib
+IDD_DIALOG1 EQU     101
+IDC_NUM     EQU     1000
+TCP_PORT		EQU	  9999
+SESSION	struct
+		szSender	db 12 dup(?);用户名
+		dwMessageId	dd	?;已经取的消息ID
+		dwLastTime	dd	?;链路的最后一次活动时间
+SESSION	ends
+				.data?
+hInstance		dword	?
+hWinMain			dword	?
+dwSocketCount	dword	?
+hListenSocket	dword	?
+dwPos				dword	?
+F_STOP			equ		01h
+ 				.data
+szErr1		db	'绑定端口9999失败!',0
+szErr2		db	'创建套接字失败!',0
+szErr3		db	'监听线程退出!',0
+szErr4		db	'发送登录消息回去!',0
+szErr5		db	'取数据包成功!',0
+szSystem		db	'系统消息',0
+szLogin		db	'进入聊天室!',0
+szLogout		db	'退出聊天室!',0
+
+ 		.code
+
+;数据包定义
+SEND_LOGIN		equ	01H
+SEND_LOGIN_RESP	EQU	81H
+SEND_DATA_UP		equ	02H
+SEND_DATA_DOWN	equ	82H
+SEND_LINK			equ	83H
+DATA_HEAD	struct
+		dwCmdId	dw	?;命令ID
+		dwLength	dd	?;整个数据的大小
+DATA_HEAD	ends
+DATA_LOGIN	struct
+		szUser	db	12 dup(?);用户名
+		szPass	db	12 dup(?);密码
+DATA_LOGIN	ends
+DATA_LOGIN_RESP	struct;服务器返回登录成功
+		dwResult	db	?;0成功 1用户名或密码错误 
+DATA_LOGIN_RESP	ends
+DATA_UP	struct ; 
+			dwLength	dd	? ;后面数据的长度
+			szContent	db 256 dup(?);聊天内容
+DATA_UP	ends
+DATA_DOWN	struct
+			szUser	db 12 dup(?) ;发送者
+			dwLength	dd	? ;后面数据的长度
+			szContent	db 256 dup(?);聊天内容
+DATA_DOWN	ends
+DATA_STRUCT 	struct;数据结构
+	MsgHead	DATA_HEAD	<>
+	union
+			Login			DATA_LOGIN <>
+			LoginResp	DATA_LOGIN_RESP <>
+			MsgUp			DATA_UP	<>
+			MsgDown		DATA_DOWN	<>
+	ends
+DATA_STRUCT	ends
+
+
+_WaitTime	proc	_hSock,_dwTime;按特定时间等待数据 输入参数_dwTime(微秒),超时返回0,有数据返回1,失败返回SOCKET_ERROR
+				local	@stFdSet:fd_set,@stTimeval:timeval;select要使用的2个结构
+				mov	@stFdSet.fd_count,1
+				push	_hSock
+				pop	@stFdSet.fd_array
+				mov	@stTimeval.tv_sec,0
+				push	_dwTime
+				pop	@stTimeval.tv_usec;注意使用的是微秒
+				invoke	select,0,addr @stFdSet,NULL,NULL,addr @stTimeval;返回值有3种可能 1.0没有数据到达 2.SOCKET_ERROR链路中断 3.返回1 已经有数据到达
+				ret
+_WaitTime	endp
+_RecvData	proc	_hSock,_lpBuf,_len;接收指定大小的数据,输入参数_lpBuf(存放缓冲区),_len(接收的数据大小) 返回TRUE失败 返回FALSE成功
+				local	@dwReturn,@dwTime;
+				pushad	
+				mov	@dwReturn,TRUE
+				mov	ebx,_len
+				mov	esi,_lpBuf
+				invoke	GetTickCount
+				mov		@dwTime,eax
+				@@:
+				invoke	GetTickCount
+				sub		eax,@dwTime
+				cmp		eax,10*1000;如果超过了10秒就退出,接小数据给10秒足够
+				jge		_Ret
+				invoke	_WaitTime,_hSock,100*1000;等待100ms
+				cmp		eax,SOCKET_ERROR
+				jz			_Ret;出错就退出
+				cmp		eax,0
+				jz			@B  ;如果数据还没有就绪则继续等待
+				invoke	recv,_hSock,esi,ebx,0 ;注意这里是使用esi ebx 因为这2个数据我们下面还要经过计算
+				.if		(eax==SOCKET_ERROR) || !eax;如果接收出错，或者接收数据为0肯定也是错的
+							jmp	_Ret
+				.endif
+				.if		eax<ebx
+							add	esi,eax;把esi指向后字符后面去
+							sub	ebx,eax;要接收的减去已经接收好的
+							jmp	@B;继续接收余下的
+				.endif
+				mov		@dwReturn,FALSE
+				;invoke	MessageBox,NULL,addr szErr5,0,MB_OK
+_Ret:
+				popad
+				mov		eax,@dwReturn
+				ret
+_RecvData	endp
+_RecvAll		proc	_hSock,_lpBuf,_len;接收符合规范的数据包,返回TRUE为失败
+				local	@dwReturn
+				pushad
+				mov		@dwReturn,TRUE
+				mov		esi,_lpBuf
+				assume	esi:ptr DATA_STRUCT
+				mov		ecx,sizeof DATA_HEAD;先接收数据头
+				invoke	_RecvData,_hSock,esi,ecx
+				or			eax,eax
+				jnz		_Ret;返回TRUE接收失败
+				mov		ecx,[esi].MsgHead.dwLength
+				cmp		ecx,_len
+				jg			_Ret;如果要接收数据包大小都比实际要接收的还大，出错，
+				cmp		ecx,sizeof DATA_HEAD
+			 	jb			_Ret;如果要接收的数据头比固定的数据头还要小，出错
+			 	sub		ecx,sizeof DATA_HEAD;实际接收的数据头-固定的数据头
+			 	add		esi,sizeof DATA_HEAD;把指针指向实际接收好的数据头的最后一位
+				.if		ecx;有的数据只有数据头没有数据体，所以这里要测试一下,如果ecx为0就表示只有数据头，也就不用再接收了
+							invoke	_RecvData,_hSock,esi,ecx ;把余下的数据体接收完
+				.else
+							xor	eax,eax;表示已经接收成功，只接收了数据头
+				.endif
+				mov		@dwReturn,eax;因为_RecvData成功是返回FALSE,所以经过上面的2个分支中的一个都是成功的
+				;invoke	MessageBox,NULL,addr szErr5,0,MB_OK
+_Ret:
+				assume	esi:nothing
+				popad
+				mov		eax,@dwReturn
+				ret
+_RecvAll		endp
+;消息队列开始
+QUEUE_SIZE	EQU	100H
+QUEUE_ITEM	struct
+		dwId		dd	?;消息ID
+		szSender	db	12 dup(?);发送消息的用户
+		szContent	db 256 dup(?);消息内容
+QUEUE_ITEM	ends
+				.data?
+stCS			CRITICAL_SECTION	<?>;临界区对象
+stQueue		QUEUE_ITEM QUEUE_SIZE dup (<?>);100个消息队列
+dwMsgCount	dd	?;当前的消息总数
+				.data
+dwSe			dd	1;消息队列从1开始
+				.code
+_InsertQueue	proc	_lpszSender,_lpszContent;插入一条消息,如果消息已经满，则删除最前面的一条，再插入
+					pushad
+					invoke	EnterCriticalSection,addr stCS;进入临界区对象
+					mov		eax,dwMsgCount
+					.if	eax>=QUEUE_SIZE ;如果现有的队列数大于等于最大的队列数，则移动数据。去掉最前面的一条消息
+							mov	edi,offset stQueue
+							mov	esi,offset stQueue+sizeof QUEUE_ITEM
+							mov	ecx,(QUEUE_SIZE-1)*sizeof QUEUE_ITEM;99个消息队列的长度
+							mov	eax,ecx
+							cld
+							rep	movsb;传送数据
+					.else
+							mov	ecx,sizeof QUEUE_ITEM;mov	eax,dwMsgCount*sizeof QUEUE_ITEM这样写是错误的。因为mov不能计算带内存操作数
+							mul	ecx
+							inc	dwMsgCount;队列总数+1
+					.endif ;上面2个分支将会使eax是队列数据的偏移
+					mov	esi,offset stQueue
+					assume	esi:ptr QUEUE_ITEM
+					add	esi,eax;esi再加上偏移就是指向将要插入的结构地址
+					invoke	lstrcpy,addr [esi].szSender,_lpszSender
+					invoke	lstrcpy,addr [esi].szContent,_lpszContent
+					inc		dwSe
+					mov		eax,dwSe
+					mov		[esi].dwId,eax
+					assume	esi:nothing
+					invoke	LeaveCriticalSection,addr stCS;离开临界区
+					popad
+					ret
+_InsertQueue	endp
+_GetQueue		proc	_dwId,_lpszSender,_lpszContent;取消息,入口参数_dwId(想取得的消息ID),如果消息ID比最小的ID还小则返回最小的ID消息,如果要取的消息ID
+															;比现有的消息ID都大，则不返回消息,取得消息返回TRUE 并且是消息ID 没取到消息返回FALSE
+					local	@dwReturn
+					pushad
+					invoke	EnterCriticalSection,addr stCS;进入临界区
+					xor		eax,eax
+					mov		@dwReturn,eax
+					cmp		eax,dwMsgCount;如果现有的消息队列总数为0则退出。没有消息可以取
+					jz			_Ret
+					mov		eax,dwMsgCount;现有消息总数
+					mov		esi,offset stQueue;指向第一条消息
+					assume	esi:ptr QUEUE_ITEM
+					mov		ecx,[esi].dwId;取得最小的消息ID
+					lea		edx,[ecx+eax-1] ;最小的偏号+现有编号-1=现有最大的消息ID
+					mov		eax,_dwId;要取的消息ID
+					cmp		eax,ecx ;要取的消息ID比最小的还小就把消息ID改为现有最小的
+					jae		@F
+					mov		eax,ecx
+					@@:
+					cmp		eax,edx
+					ja			_Ret;消息ID比最大的还大。则没有消息可以取，退出子程序
+					;程序能走到这一步表示已经是开始取消息了，eax则是要取的消息ID。
+					mov		@dwReturn,eax;返回真，表示取得消息
+					sub		eax,[esi].dwId;要取的ID减去最小的，将是要取的消息偏移ID值
+					mov		ecx,sizeof QUEUE_ITEM
+					mul		ecx;eax就是要取的消息偏移
+					add		esi,eax
+					invoke	lstrcpy,_lpszSender,addr [esi].szSender
+					invoke	lstrcpy,_lpszContent,addr [esi].szContent
+					assume	esi:nothing
+_Ret:
+					invoke	LeaveCriticalSection,addr stCS;离开临界区
+					popad
+					mov		eax,@dwReturn
+					ret
+_GetQueue		endp
+
+assume			esi:ptr DATA_STRUCT
+assume			edi:ptr SESSION
+
+_Link				proc	 uses	esi edi _hSocket,_lpBuf,_lpSession;链路检测,成功返回FALSE 失败返回TRUE
+					invoke	GetTickCount
+					push		eax
+					sub		eax,[edi].dwLastTime
+					cmp		eax,30*1000;30秒
+					pop		eax;记得啊。这个pop要在jb前面。不然可是程序错误哦 
+					jb			_Ret;没有到30秒的时间就不用发链路检测
+					mov		[edi].dwLastTime,eax;更新链路时间
+					mov		[esi].MsgHead.dwCmdId,SEND_LINK
+					mov		[esi].MsgHead.dwLength,sizeof DATA_HEAD ;发送链路检测包，只有数据头,没有数据体
+					invoke	send,_hSocket,esi,[esi].MsgHead.dwLength,0
+					cmp		eax,SOCKET_ERROR
+					jnz			_Ret
+					ret
+_Ret:
+					xor	eax,eax;
+					ret
+_Link				endp
+
+;系统在空闲时间主动发送消息队列的消息到客户端,返回TRUE表示是错误 返回FALSE表示正确，并且有数据到达
+_SendMsgQueue	proc	uses	esi edi _hSocket,_lpBuf,_lpSesstion
+					mov		esi,_lpBuf
+					mov		edi,_lpSesstion
+					.while	!(dwPos & F_STOP)
+								mov		ecx,[edi].dwMessageId
+								inc		ecx
+								invoke	_GetQueue,ecx,addr [esi].MsgDown.szUser,addr [esi].MsgDown.szContent;发送消息
+								.break	.if	!eax
+								mov		[edi].dwMessageId,eax;函数返回消息ID ,存进SESSION里面
+								invoke	lstrlen,addr [esi].MsgDown.szContent;取内容长度
+								inc		eax;注意呀注意，这里要+1.使最后面以0结尾。不然后面会有乱码
+								mov		[esi].MsgDown.dwLength,eax;存进结构DATA_DOWN里面
+								add		eax,sizeof 	DATA_HEAD + DATA_DOWN.szContent;这里计算总的数据长度 内容+数据头+DATA_DOWN结构到szContent字段的长度
+								mov		[esi].MsgHead.dwLength,eax
+								mov		[esi].MsgHead.dwCmdId,SEND_DATA_DOWN
+								invoke	send,_hSocket,esi,eax,0
+								.break	.if	eax==SOCKET_ERROR
+								invoke	GetTickCount
+								mov		[edi].dwLastTime,eax
+								invoke	_WaitTime,_hSocket,0;查看缓冲区是否有数据到达。如果有到达就不发送先退出去接收数据
+								.break	.if	eax==SOCKET_ERROR
+								.if		eax
+											xor	eax,eax;有数据就返回FALSE
+											.break
+								.endif
+					.endw
+					ret
+_SendMsgQueue	endp
+_socketThread	proc	_lParam	;工作线程。每个用户登录都会创建一个此线程为用户工作
+					local	@stSess:SESSION,@stBuf[512]:BYTE 
+					pushad
+					lea	esi,@stBuf
+					lea	edi,@stSess
+					inc	dwSocketCount
+					invoke	SetDlgItemInt,hWinMain,IDC_NUM,dwSocketCount,FALSE
+					invoke	RtlZeroMemory,addr @stSess,sizeof @stSess
+					push		dwSe;把当前最新的消息编号给新用户
+					pop		[edi].dwMessageId
+					;用户帐号的检测
+					invoke	_RecvAll,_lParam,addr @stBuf,sizeof @stBuf
+					jnz		_Ret
+					.if		[esi].MsgHead.dwCmdId!=SEND_LOGIN;第一次的数据肯定是用户登录，不然就是错误的
+								jmp	_Ret
+					.else
+								invoke	lstrcpy,addr [edi].szSender,addr [esi].Login.szUser;取得用户名
+								mov		[esi].LoginResp.dwResult,0;前面规定的。登录成功返回0
+					.endif
+					mov		[esi].MsgHead.dwCmdId,SEND_LOGIN_RESP
+					mov		[esi].MsgHead.dwLength,sizeof DATA_HEAD+sizeof DATA_LOGIN_RESP;服务器接收到了登录消息。将要回传登录消息给客户端
+					invoke	send,_lParam,esi,[esi].MsgHead.dwLength,0;把登录回应发送出去
+					cmp		eax,SOCKET_ERROR
+					jz			_Ret
+					cmp		[esi].LoginResp.dwResult,0
+					jnz		_Ret;测试登录回应是不是0,我们规定是0才是成功，不是0就关闭工作线程
+					;登录广告
+					invoke	lstrcpy,esi,addr [edi].szSender;放入用户帐号
+					invoke	lstrcat,esi,addr szLogin;;再加上“进入聊天室"
+					invoke	_InsertQueue,addr szSystem,esi;放入登录消息进消息队列
+					invoke	GetTickCount
+					mov		[edi].dwLastTime,eax
+					;开始循环工作
+					.while	!(dwPos & F_STOP)
+								invoke	_SendMsgQueue,_lParam,esi,edi;发送消息队列的消息
+								.break	.if	eax;如果发送消息队列里面失败会返回TRUE
+								invoke	_Link,_lParam,esi,edi
+								.break	.if	eax;如果测试链路失败会返回TRUE
+								.break	.if	dwPos & F_STOP;退出标志是否设置
+								invoke	_WaitTime,_lParam,200*1000;等待200ms.如果没有数据则循环
+								.break	.if	eax==SOCKET_ERROR
+								.if		eax;如果有数据到达
+											invoke	_RecvAll,_lParam,esi,sizeof @stBuf
+											.break	.if	eax;失败
+											invoke	GetTickCount
+											mov		[edi].dwLastTime,eax;更新活动时间,比如忙的时候就不需要发送链路检测包了
+											.if		[esi].MsgHead.dwCmdId==SEND_DATA_UP;如果是聊天信息。则放入消息队列
+														invoke	_InsertQueue,addr [edi].szSender,addr [esi].MsgUp.szContent
+											.ENDIF
+								.endif
+					.endw
+					;退出广播
+					invoke	lstrcpy,esi,addr [edi].szSender
+					invoke	lstrcat,esi,addr szLogout
+					invoke	_InsertQueue,addr szSystem,esi;放入退出消息进消息队列
+_Ret:				
+					;invoke	MessageBox,NULL,addr szErr3,0,MB_OK
+					invoke	closesocket,_lParam
+					dec		dwSocketCount
+					invoke	SetDlgItemInt,hWinMain,IDC_NUM,dwSocketCount,FALSE
+					popad
+					ret
+_socketThread	endp
+assume			esi:nothing,edi:nothing
+_Listen			proc	_lParam
+					local	@stAddr:sockaddr_in
+					
+					invoke	RtlZeroMemory,addr @stAddr,sizeof @stAddr;
+					mov		@stAddr.sin_family,AF_INET
+					mov		@stAddr.sin_addr,INADDR_ANY ;接收本机所有IP
+					invoke	htons,TCP_PORT ;把端口转换成网络字节顺
+					MOV		@stAddr.sin_port,ax
+					invoke	socket,AF_INET,SOCK_STREAM,NULL
+					.if		eax==INVALID_SOCKET;创建套接字失败
+								invoke	MessageBox,0,addr szErr2,0,MB_OK
+								jmp	_Ret
+					.endif
+					mov		hListenSocket,eax
+					invoke	bind,hListenSocket,addr @stAddr,sizeof @stAddr
+					.if		eax;梆定失败
+								invoke	MessageBox,NULL,addr szErr1,0,MB_OK
+								jmp	_Ret
+					.endif
+					invoke	listen,hListenSocket,5;监听
+					.while	TRUE
+								invoke	accept,hListenSocket,NULL,NULL;接受请求
+								.break	.if	eax==INVALID_SOCKET;失败退出线程
+								push		ecx
+								invoke	CreateThread,NULL,0,addr _socketThread,eax,NULL,esp;创建工作线程
+								pop		ecx
+								invoke	CloseHandle,eax
+					.endw
+_Ret:				
+					
+					ret
+_Listen			endp
+
+_DiaProc	proc	uses	ebx esi edi hWnd,uMsg,wParam,lParam
+			local		@stWD:WSADATA
+			mov		eax,uMsg
+			.if		eax==WM_INITDIALOG
+ 						push		hWnd
+						pop		hWinMain
+						invoke	InitializeCriticalSection,addr stCS;初始化临界区
+						invoke	WSAStartup,0002H,addr @stWD;第二参数是16位,指定版本号 高位是副版本号。低位是主版本号
+						push		ecx
+						invoke	CreateThread,NULL,0,addr _Listen,NULL,NULL,esp;创建监听线程
+						pop		ecx
+						invoke	CloseHandle,eax
+ 			.elseif	eax==WM_CLOSE
+ 						invoke	closesocket,hListenSocket;关闭监听套接字
+ 						or			dwPos,F_STOP;设置退出标志
+ 						.while	dwSocketCount;循环等待所有工作线程退出
+ 						.endw
+ 						invoke	DeleteCriticalSection,addr stCS;释放临界区
+ 						invoke	WSACleanup;释放套接字函数
+ 						invoke	EndDialog,hWnd,NULL
+			.else
+						mov	eax,FALSE
+						ret
+			.endif
+			mov		eax,TRUE
+			ret
+_DiaProc	endp
+start:
+		invoke	GetModuleHandle,NULL
+		mov		hInstance,eax
+		invoke	DialogBoxParam,hInstance,IDD_DIALOG1,NULL,offset _DiaProc,NULL
+		invoke	ExitProcess,0
+		end start

@@ -1,0 +1,702 @@
+
+;制作人:ham
+;算法100原创
+;请用ml6.15或以上版本编译
+        .586
+        .xmm
+        .model flat,stdcall
+        option casemap:none
+include        windows.inc
+include        gdi32.inc
+includelib    gdi32.lib
+include        user32.inc
+includelib    user32.lib
+include        kernel32.inc
+includelib    kernel32.lib
+        .data?
+        align 16
+VectorR        db    16 dup(?)
+VectorL        db    16 dup(?)
+VectorT        db    16 dup(?)
+VectorA        db    16 dup(?)
+VectorB        db    16 dup(?)
+MoveX        dd        ?
+MoveY        dd        ?
+Move1X        dd        ?
+Move1Y        dd        ?
+DownJh        dd        ?
+hInstance    dd        ?
+hWinMain    dd        ?
+lpBmp        dd        ?
+hdc        dd        ?
+lp3ds        dd        ?
+lpGrad        dd        ?
+ls3        dd        ?
+ls4        dd        ?
+ls5        dd        ?
+lsX        dd        ?
+lsY        dd        ?
+Xmax        dd        ?
+Xmin        dd        ?
+Ymax        dd        ?
+Ymin        dd        ?
+        align 8
+XAxes1        dd    200 dup(?)
+XAxes2        dd    200 dup(?)
+
+        .data
+        align 16
+VectorU        dd    1.0,  0.0,  0.0,  0;屏幕x轴参考向量
+VectorV        dd    0.0,  1.0,  0.0,  0;屏幕y轴参考向量
+x        dd        -100.0;空间函数x轴变量
+y        dd        -100.0;空间函数y轴变量
+z        dd        ?;空间函数z轴变量
+        dd        ?
+        
+        .const
+szClassName    db    'My 3D',0
+szCaptionMain    db    '3D Graph(鼠标左键按下拖动改变方向)',0
+
+        .code
+Projection    proc    lpVectorU,lpVectorV,lpVectorR
+;此函数用来求VectorU向量在VectorV上的投影向量VectorR
+        mov    esi,lpVectorU
+        mov    edi,lpVectorV
+        mov    ebx,lpVectorR
+        movaps    XMM0,[esi]
+        movaps    XMM1,[edi]
+        movaps    XMM6,[edi]
+        mulps    XMM0,XMM1
+        mulps    XMM1,XMM1
+        pshufd    XMM2,XMM0,1
+        pshufd    XMM3,XMM0,2
+        pshufd    XMM4,XMM1,1
+        pshufd    XMM5,XMM1,2
+        addss    XMM0,XMM2
+        addss    XMM1,XMM4
+        addss    XMM0,XMM3
+        addss    XMM1,XMM5
+        divss    XMM0,XMM1
+        pshufd    XMM1,XMM0,0
+        mulps    XMM6,XMM1
+        movaps    [ebx],XMM6
+        ret
+Projection    endp
+
+VectorAbs    proc    lpVector
+;此函数用来求向量的模长，返回在eax中
+        local    @ABS
+        mov    esi,lpVector
+        movaps    XMM0,[esi]
+        mulps    XMM0,XMM0
+        pshufd    XMM2,XMM0,1
+        pshufd    XMM3,XMM0,2
+        addss    XMM0,XMM2
+        addss    XMM0,XMM3
+        movd    @ABS,XMM0
+        finit
+        fld    @ABS
+        fsqrt
+        fst    @ABS
+        mov    eax,@ABS
+        ret
+VectorAbs    endp
+
+VecMul      proc    lpVectorU,lpVectorV,lpVectorR
+;此函数用来求向量VectorU与向量VectorV的叉乘，结果放入lpVectorR指定的内存中
+        mov    esi,lpVectorU
+        mov    edi,lpVectorV
+        mov    ebx,lpVectorR
+        pshufd    XMM0,[esi],10000110b
+        pshufd    XMM1,[edi],00101001b
+        pshufd    XMM2,[esi],0001b
+        pshufd    XMM3,[edi],0100b
+        mulps    XMM0,XMM1
+        mulps    XMM2,XMM3
+        movapd    XMM4,XMM0
+        shufps    XMM4,XMM2,011101b
+        shufps    XMM0,XMM2,001000b
+        subps    XMM4,XMM0
+        movaps    [ebx],XMM4
+        ret
+VecMul      endp
+
+IntstAngle    proc    lpVectorU,lpVectorV
+;用来求两条向量夹角的余弦值
+        local    @ls
+        local    @ls1
+        local    @ls2
+        mov    esi,lpVectorU
+        mov    edi,lpVectorV
+        invoke    VectorAbs,esi
+        mov    ebx,eax
+        invoke    VectorAbs,edi
+        mov    esi,lpVectorU
+        movd    XMM4,ebx
+        movd    XMM5,eax
+        movaps    XMM0,[esi]
+        mulps    XMM0,[edi]
+        pshufd    XMM1,XMM0,1
+        pshufd    XMM2,XMM0,2
+        mulss    XMM4,XMM5
+        addss    XMM0,XMM2
+        addss    XMM0,XMM1
+        divss    XMM0,XMM4
+        movd    eax,XMM0
+        ret
+IntstAngle    endp
+
+MaxAMin        proc    _x,_y
+        mov    edi,ls5
+        mov    eax,[edi]
+        mov    ebx,[edi+8]
+        mov    ecx,lsX
+        mov    edx,_x
+        cmp    eax,ebx
+        jbe    @f
+        mov    eax,ebx
+        @@:
+        cmp    eax,ecx
+        jbe    @f
+        mov    eax,ecx
+        @@:
+        cmp    eax,edx
+        jbe    @f
+        mov    eax,edx
+        @@:
+        mov    Xmin,eax
+        ;======================
+        cmp    ebx,ecx
+        jae    @f
+        mov    ebx,ecx
+        @@:
+        cmp    ebx,ecx
+        jae    @f
+        mov    ebx,edx
+        @@:
+        mov    Xmax,ebx
+        ;------------------------------
+        mov    eax,[edi+4]
+        mov    ebx,[edi+12]
+        mov    ecx,lsY
+        mov    edx,_y
+        cmp    eax,ebx
+        jbe    @f
+        mov    eax,ebx
+        @@:
+        cmp    eax,ecx
+        jbe    @f
+        mov    eax,ecx
+        @@:
+        cmp    eax,edx
+        jbe    @f
+        mov    eax,edx
+        @@:
+        mov    Ymin,eax
+        ;==================
+        cmp    ebx,ecx
+        jae    @f
+        mov    ebx,ecx
+        @@:
+        cmp    ebx,ecx
+        jae    @f
+        mov    ebx,edx
+        @@:
+        mov    Ymax,ebx
+        ;--------------------------
+        add    edi,8
+        mov    ls5,edi
+        ret
+MaxAMin        endp
+
+SetBmpPixel    proc    lpBitMap,_x,_y,Grap
+        local    ls
+;把指定的点坐标设置到位图中
+        mov    ebx,_x
+        mov    ecx,_y
+        mov    edx,599
+        cmp    ebx,edx
+        ja    exit
+        cmp    ecx,edx
+        ja    exit
+        invoke    IntstAngle,addr VectorR,Grap
+        and    eax,7fffffffh
+        mov    ls,eax
+        finit
+        fld    _201
+        fld    ls
+        fmul    st,st(1)
+        fist    ls
+        mov    esi,ls
+        mov    eax,esi
+        mov    ebx,esi
+        shl    eax,8
+        shl    ebx,16
+        or    esi,eax
+        or    esi,ebx
+        ;----------------------------
+        mov    edx,ls3
+        mov    eax,lsX
+        test    edx,edx
+        jz    exit
+        test    eax,eax
+        jz    exit
+        invoke    MaxAMin,_x,_y
+        mov    eax,Ymin
+        mov    ebx,600
+        mul    ebx
+        add    eax,Xmin
+        shl    eax,2
+        add    eax,40
+        add    eax,lpBitMap
+        ;------------------------------
+        mov    ecx,Ymax
+        mov    edx,Ymin
+        sub    ecx,edx
+        ;----------------
+        mov    ebx,Xmax
+        mov    edx,Xmin
+        sub    ebx,edx
+        cmp    ecx,100
+        jb    @f
+        mov    ecx,2
+        @@:
+        cmp    ebx,100
+        jb    @f
+        mov    ebx,2
+        @@:
+        ;----------------
+        lp:
+        mov    edx,ebx
+        mov    edi,eax
+        add    eax,600*4
+        @@:
+        mov    [edi],esi
+        add    edi,4
+        dec    edx
+        jns    @b
+        dec    ecx
+        jns    lp
+        exit:
+        ;----------------------------
+        ret
+        align    4
+_201        dd    201.0
+SetBmpPixel    endp
+
+Circumgyrate    proc
+;对参考平面（屏幕）进行变换坐标
+        local    ls
+        local    ls1
+        mov    eax,Move1X
+        mov    ebx,Move1Y
+        sub    eax,MoveX
+        sub    ebx,MoveY
+        mov    ls,eax
+        mov    ls1,ebx
+        finit
+        fild    ls
+        fld    rad
+        fdiv
+        fsincos
+        fld    dword ptr VectorU
+        fld    dword ptr VectorU+4
+        fld    dword ptr VectorU+8
+        fmul    st(0),st(3)
+        fstp    dword ptr VectorA+8
+        fmul    st(0),st(2)
+        fstp    dword ptr VectorA+4
+        fmul
+        fstp    dword ptr VectorA
+        fld    dword ptr VectorR
+        fld    dword ptr VectorR+4
+        fld    dword ptr VectorR+8
+        fmul    st(0),st(3)
+        fstp    dword ptr VectorB+8
+        fmul    st(0),st(2)
+        fstp    dword ptr VectorB+4
+        fmul
+        fstp    dword ptr VectorB
+        movaps    XMM0,VectorA
+        movaps    XMM1,VectorB
+        addps    XMM0,XMM1
+        movaps    VectorU,XMM0
+        invoke    VecMul,addr VectorU,addr VectorV,addr VectorR;计算屏幕法向量
+        finit
+        fild    ls1
+        fld    rad
+        fdiv
+        fsincos
+        fld    dword ptr VectorV
+        fld    dword ptr VectorV+4
+        fld    dword ptr VectorV+8
+        fmul    st(0),st(3)
+        fstp    dword ptr VectorA+8
+        fmul    st(0),st(2)
+        fstp    dword ptr VectorA+4
+        fmul
+        fstp    dword ptr VectorA
+        fld    dword ptr VectorR
+        fld    dword ptr VectorR+4
+        fld    dword ptr VectorR+8
+        fmul    st(0),st(3)
+        fstp    dword ptr VectorB+8
+        fmul    st(0),st(2)
+        fstp    dword ptr VectorB+4
+        fmul
+        fstp    dword ptr VectorB
+        movaps    XMM0,VectorA
+        movaps    XMM1,VectorB
+        addps    XMM0,XMM1
+        movaps    VectorV,XMM0
+        invoke    VecMul,addr VectorU,addr VectorV,addr VectorR;计算屏幕法向量
+        ret
+        align    4
+rad         dd      100.0
+Circumgyrate    endp
+
+_ProcWinMain    proc    uses ebx edi esi hWnd,uMsg,wParam,lParam
+        local    ls
+        local    ls1
+        local    ls2
+        local    @16
+        local    @1600
+        mov    eax,uMsg
+        .if    eax ==    WM_TIMER
+            mov    edi,lp3ds
+            mov    esi,lpGrad
+            mov    eax,16
+            mov    edx,1600
+            mov    ebx,dword ptr VectorR
+            mov    ecx,dword ptr VectorR+4
+            test    ebx,ebx
+            js    @f
+            neg    eax
+            @@:
+            test    ecx,ecx
+            js    @f
+            neg    edx
+            add    edi,100*99*16
+            add    esi,100*99*16
+            @@:
+            mov    @16,eax
+            mov    @1600,edx
+            ;--------
+            xor    eax,eax
+            mov    ls3,eax
+            ;--------
+            mov    ecx,100
+            lp:
+            push    ecx
+            push    edi
+            push    esi
+            xor    edx,edx
+            mov    lsX,edx
+            mov    lsY,edx
+            mov    ls4,offset XAxes1
+            mov    eax,@16
+            mov    ecx,100
+            test    eax,eax
+            jns    lp1
+            add    esi,99*16
+            add    edi,99*16
+            lp1:
+            push    ecx
+            push    edi
+            push    esi
+            invoke    VecMul,edi,addr VectorR,addr VectorL
+            invoke    VecMul,addr VectorL,addr VectorR,addr VectorT
+            mov    edi,[esp+4]
+            invoke    Projection,edi,addr VectorT,addr VectorT
+            ;=============================================================
+            invoke    VectorAbs,addr VectorT
+            mov    ls,eax
+            invoke    IntstAngle,addr VectorT,addr VectorU
+            mov    ls1,eax
+            invoke    IntstAngle,addr VectorT,addr VectorV
+            mov    ls2,eax
+            finit
+            fld    ls1
+            fld    ls
+            fld    ls2
+            fmul    st,st(1)
+            fistp    ls2
+            fmul
+            fistp    ls1
+            mov    eax,ls1
+            mov    ebx,ls2
+            add    eax,300
+            add    ebx,300
+            mov    ls1,eax
+            mov    ls2,ebx
+            ;此时ls1是屏幕x轴坐标，ls2是屏幕y轴坐标
+            invoke    SetBmpPixel,lpBmp,eax,ebx,dword ptr[esp];把计算好的象素坐标设置到32bit位图中
+            mov    eax,ls1
+            mov    ebx,ls2
+            mov    lsX,eax
+            mov    lsY,ebx
+            mov    edi,ls4
+            mov    [edi],eax
+            mov    [edi+4],ebx
+            add    edi,8
+            mov    ls4,edi
+            ;=============================================================
+            pop    esi
+            pop    edi
+            add    esi,@16
+            add    edi,@16
+            pop    ecx
+            dec    ecx
+            jnz    lp1
+            mov    ls3,esi
+            ;=======
+            mov    edi,offset XAxes2
+            mov    esi,offset XAxes1
+            mov    ecx,200
+            mov    ls5,edi
+            rep    movsd
+            ;=======
+            pop    esi
+            pop    edi
+            add    esi,@1600
+            add    edi,@1600
+            pop    ecx
+            dec    ecx
+            jnz    lp
+            ;----------------------------------
+            mov    edi,lpBmp
+            mov    ecx,lpBmp
+            mov    edx,lpBmp
+            add    ecx,40
+            invoke    SetDIBitsToDevice,hdc,0,0,dword ptr[edi+4],\
+                dword ptr[edi+8],0,0,0,    dword ptr[edi+8],\
+                ecx,edx,DIB_RGB_COLORS;绘制处理好的图象
+            mov    edi,lpBmp
+            mov    ecx,600*600
+            mov    eax,-1
+            add    edi,40
+            rep    stosd;把位图涂成白色
+        .elseif    eax ==    WM_MOUSEMOVE
+            cmp    DownJh,0;当鼠标左键按下时允许变换图象
+            jz    @f
+            mov    eax,lParam
+            mov    edx,lParam
+            and    eax,0ffffh
+            shr    edx,16
+            mov    MoveX,eax
+            mov    MoveY,edx
+            push    eax
+            push    edx
+            invoke    Circumgyrate
+            pop    Move1Y
+            pop    Move1X
+            @@:
+        .elseif    eax ==    WM_LBUTTONDOWN
+            invoke    SetTimer,hWnd,1,1,0;设置最快的速度刷新屏幕图象
+            mov    DownJh,1;当鼠标左键按下时设置允许变换图象标记
+            mov    eax,lParam
+            mov    edx,lParam
+            and    eax,0ffffh
+            shr    edx,16
+            mov    Move1X,eax
+            mov    Move1Y,edx
+        .elseif    eax ==    WM_LBUTTONUP
+            invoke    KillTimer,hWnd,1;停止刷新屏幕图象
+            mov    DownJh,0;当鼠标左键弹起时设置不允许变换图象标记
+        .elseif    eax ==    WM_NCMOUSEMOVE
+            invoke    KillTimer,hWnd,1;停止刷新屏幕图象
+            mov    DownJh,0;当鼠标指针移到边框时设置不允许变换图象标记
+        .elseif    eax ==    WM_CREATE
+            invoke    VecMul,addr VectorU,addr VectorV,addr VectorR;计算屏幕法向量
+            invoke    SetTimer,hWnd,1,1,0
+            invoke    GetDC,hWnd
+            mov    hdc,eax
+        .elseif    eax ==    WM_CLOSE
+            invoke    KillTimer,hWnd,1
+            invoke    DestroyWindow,hWinMain
+            invoke    PostQuitMessage,NULL
+        .else
+            invoke    DefWindowProc,hWnd,uMsg,wParam,lParam
+            ret
+        .endif
+            xor    eax,eax
+        ret
+
+_ProcWinMain    endp
+_WinMain    proc
+        local    @stWndClass:WNDCLASSEX
+        local    @stMsg:MSG
+
+        invoke    GetModuleHandle,NULL
+        mov    hInstance,eax
+        invoke    RtlZeroMemory,addr @stWndClass,sizeof @stWndClass
+        invoke    LoadCursor,0,IDC_ARROW
+        mov    @stWndClass.hCursor,eax
+        push    hInstance
+        pop    @stWndClass.hInstance
+        mov    @stWndClass.cbSize,sizeof WNDCLASSEX
+        mov    @stWndClass.style,CS_HREDRAW or CS_VREDRAW
+        mov    @stWndClass.lpfnWndProc,offset _ProcWinMain
+        mov    @stWndClass.hbrBackground,COLOR_WINDOW + 1
+        mov    @stWndClass.lpszClassName,offset szClassName
+        invoke    RegisterClassEx,addr @stWndClass
+        invoke    CreateWindowEx,WS_EX_CLIENTEDGE,offset szClassName,offset szCaptionMain,\
+        WS_SYSMENU,\
+        0,0,625,650,\
+        NULL,NULL,hInstance,NULL
+        mov    hWinMain,eax
+        invoke    ShowWindow,hWinMain,SW_SHOWNORMAL
+        invoke    UpdateWindow,hWinMain
+    .while    TRUE
+        invoke    GetMessage,addr @stMsg,NULL,0,0
+    .break    .if eax    == 0
+        invoke    TranslateMessage,addr @stMsg
+        invoke    DispatchMessage,addr @stMsg
+    .endw
+        ret
+
+_WinMain    endp
+
+Function    proc    uses edi lpVector
+;空间函数
+        mov    edi,lpVector
+        finit
+        fld    _10
+        fld    _1000
+        fld    dword ptr[edi+4]
+        fld    dword ptr[edi]
+        fmul    st,st
+        fxch
+        fmul    st,st
+        fadd
+        fsqrt
+        fld    st
+        fdiv    st,st(3)
+        fsin
+        fdiv    st,st(1)
+        fmul    st,st(2)
+        fst    dword ptr[edi+8]
+        ret
+Function    endp
+        align    4
+_1        dd    -1.0
+_10        dd    10.0
+_100        dd    100.0
+_1000        dd    1000.0
+InitGrad    proc
+;函数的梯度（简单的明暗渲染数据）
+        local    ls
+        local    ls1
+        local    ls2
+        mov    esi,lp3ds
+        mov    edi,lpGrad
+        mov    ecx,10000
+        mov    eax,_1
+        Grad:
+        finit
+        fld    dword ptr[esi]
+        fld    dword ptr[esi+4]
+        fmul    st,st
+        fxch
+        fmul    st,st
+        fadd
+        fst    ls
+        fsqrt
+        fst    ls1
+        fld    st
+        fmul    st,st(1)
+        fmul    st,st(1)
+        fstp    ls2
+        fdiv    _10
+        fsincos
+        fxch
+        fmul    _10
+        fdiv    ls2
+        fxch
+        fdiv    ls
+        fsub    st,st(1)
+        fmul    _100
+        fld    st
+        fmul    dword ptr[esi]
+        fxch
+        fmul    dword ptr[esi+4]
+        fstp    dword ptr[edi+4]
+        fstp    dword ptr[edi]
+        mov    dword ptr[edi+8],eax
+        add    esi,16
+        add    edi,16
+        dec    ecx
+        jnz    Grad
+        ret
+InitGrad    endp
+
+Init3ds        proc
+        mov    edi,lp3ds
+        mov    ecx,100
+        lp:
+        push    ecx
+        mov    ecx,100
+        push    x
+        lp1:
+        push    ecx
+        invoke    Function,addr x
+        movaps    XMM0,x
+        movaps    [edi],XMM0
+        add    edi,16
+        finit
+        fld1
+        fld1
+        fld    x
+        fadd
+        fadd
+        fst    x
+        pop    ecx
+        dec    ecx
+        jnz    lp1
+        pop    x
+        finit
+        fld1
+        fld1
+        fld    y
+        fadd
+        fadd
+        fst    y
+        pop    ecx
+        dec    ecx
+        jnz    lp
+        ret
+Init3ds        endp
+
+start:
+        invoke    GlobalAlloc,0,4*600*600+80
+        and    eax,-16
+        add    eax,16
+        mov    lpBmp,eax
+        mov    edi,eax
+        mov    dword ptr[edi],40
+        mov    dword ptr[edi+4],600
+        mov    dword ptr[edi+8],600
+        mov    dword ptr[edi+12],200001h
+        mov    ecx,600*600
+        mov    eax,-1
+        add    edi,40
+        rep    stosd
+        invoke    GlobalAlloc,0,100*100*16+16
+        and    eax,-16
+        add    eax,16
+        mov    lp3ds,eax
+        invoke    Init3ds
+        invoke    GlobalAlloc,0,100*100*16+16
+        and    eax,-16
+        add    eax,16
+        mov    lpGrad,eax
+        invoke    InitGrad
+        call    _WinMain
+        invoke    GlobalFree,lpBmp
+        invoke    GlobalFree,lp3ds
+        invoke    GlobalFree,lpGrad
+        ret
+        end    start
+
+
+

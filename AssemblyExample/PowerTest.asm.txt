@@ -1,0 +1,50 @@
+;********************************************
+;Target:
+;检测系统所使用的电源类型，是直流还是交流电源
+;Author: Lonkil lonkil_at_Gmail.com
+;Site:	WWW.VCFANS.COM
+;Date: 2008-6-13
+;********************************************
+.386
+.model flat,stdcall
+option	casemap:none
+
+include windows.inc
+include Kernel32.inc
+include gdi32.inc
+include user32.inc
+
+includelib kernel32.lib
+includelib gdi32.lib
+includelib user32.lib
+
+.data
+szTitle db "检测系统所用电源类型 Code By Lonkil  Www.Vcfans.Com  ", 0
+szDC	db "你的系统使用直流电源供电", 0
+szAC	db "你的系统使用交流电源供电", 0
+szOther	db "你的系统使用未知电源供电", 0
+szError db "对不起，调用检测程序出错，无法检测您所使用的电源类型。", 0
+.data?
+sps	SYSTEM_POWER_STATUS	<?>
+.code
+start:
+        invoke RtlZeroMemory,offset sps,sizeof SYSTEM_POWER_STATUS
+
+	invoke GetSystemPowerStatus,offset sps
+	.if eax == 0
+	;failed GetSystemPowerStatus
+		invoke MessageBox, 0 , offset szError, offset szTitle , MB_ICONERROR
+	.else
+	;Success SYSTEM_POWER_STATUS
+		mov al, sps.ACLineStatus
+		.if al == 0
+			invoke MessageBox, 0, offset szDC, offset szTitle, MB_ICONINFORMATION
+		.elseif al == 1
+       			invoke MessageBox,  0, offset szAC, offset szTitle, MB_ICONINFORMATION
+		.else
+			invoke MessageBox,  0, offset szOther, offset szTitle, MB_ICONINFORMATION
+		.endif
+	.endif
+
+	invoke ExitProcess, NULL
+end start

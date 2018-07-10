@@ -1,0 +1,39 @@
+include windows.inc
+include user32.inc
+include kernel32.inc
+include shell32.inc
+include comctl32.inc
+include comdlg32.inc
+
+includelib user32.lib
+includelib kernel32.lib
+includelib shell32.lib
+includelib comctl32.lib
+includelib comdlg32.lib
+
+WinMain				PROTO :DWORD,:DWORD,:DWORD,:DWORD
+WndProc				PROTO :DWORD,:DWORD,:DWORD,:DWORD
+
+IDD_DIALOG			equ 1000
+
+IDM_MENU			equ 10000
+IDM_FILE_EXIT		equ 10001
+IDM_HELP_ABOUT		equ 10101
+
+.const
+one				db '\2.exe',0
+thetwo				db '2.exe',0
+onename				db '1.exe',0
+format				db '%s',0
+ClassName			db 'DLGCLASS',0
+AppName				db 'Dialog as main',0
+AboutMsg			db 'MASM32 RadASM Dialog as main',13,10,'Copyright © MASM32 2001',0
+
+.data?
+MutexHandle			dd ?
+StartupInfo			STARTUPINFO <?>
+ProcessInformation		PROCESS_INFORMATION <?>
+ommandLine			db MAX_PATH dup (?)
+hInstance			dd ?
+CommandLine			dd ?
+hWnd				dd ?

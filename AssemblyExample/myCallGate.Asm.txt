@@ -1,0 +1,113 @@
+.386
+.model flat, stdcall
+option casemap:none
+
+include myCallGate.inc
+.const
+CCOUNTED_UNICODE_STRING  "\\Device\\MYCALLGATE",g_usDeviceName,4
+CCOUNTED_UNICODE_STRING  "\\??\\MYCALLGATE",g_usSymbolicLinkName,4
+
+GDT_LIMIT  = 03ffh
+GATE_TYPE  = 0ECH
+
+
+.code
+Ring0Fun proc
+	pushad
+	pushfd
+	cli
+	invoke DbgPrint, $CTA0("mycallgate function executed\n")
+	;add your code here, you can do anything if you like. 
+	sti
+	popfd
+	popad
+	retf
+Ring0Fun endp
+
+AddCallGate proc FuncAddr:ULONG
+    pushfd
+    pushad
+    
+	push esi
+	sgdt [esp-2]
+	pop esi
+	
+	mov eax,8
+	.while eax < GDT_LIMIT
+	     lea edx,[esi+eax]
+	     assume edx:ptr CALLGATE
+	     test [edx].GTYPE,80h
+	    .if ZERO?
+	       mov ebx,FuncAddr
+	       mov [edx].OFFSETL,bx
+	       mov [edx].SELECTOR,08h
+	       mov [edx].DCOUNT,0
+	       mov [edx].GTYPE,GATE_TYPE
+	       shr ebx,16
+	       mov [edx].OFFSETH,bx     
+          .break
+	   .endif   
+	    assume edx:nothing
+	   add eax,8
+	.endw
+     
+	popad
+    popfd
+	ret
+
+AddCallGate endp
+
+DispatchControl proc uses esi edi pDeviceObject:PDEVICE_OBJECT,pIrp:PIRP
+	
+	mov esi,pIrp
+	assume esi:ptr _IRP
+	mov [esi].IoStatus.Status ,STATUS_SUCCESS
+	and [esi].IoStatus.Information,0
+	invoke IoCompleteRequest,pIrp,0
+	mov eax,[esi].IoStatus.Status
+	assume esi:nothing
+	ret
+
+DispatchControl endp
+
+DriverUnload proc pDriverObject:PDRIVER_OBJECT
+	
+	invoke IoDeleteSymbolicLink,addr g_usSymbolicLinkName
+	mov eax,pDriverObject
+	invoke IoDeleteDevice,(DRIVER_OBJECT PTR[eax]).DeviceObject
+	ret
+
+DriverUnload endp
+
+DriverEntry proc pDriverObject:PDRIVER_OBJECT,pusRegistryPath:PUNICODE_STRING
+
+    LOCAL status:NTSTATUS
+    LOCAL pDeviceObject:PDEVICE_OBJECT
+    
+    mov status,STATUS_DEVICE_CONFIGURATION_ERROR
+    invoke IoCreateDevice,pDriverObject,0,addr g_usDeviceName,FILE_DEVICE_UNKNOWN,0,FALSE,addr pDeviceObject
+    .if eax == STATUS_SUCCESS
+        invoke IoCreateSymbolicLink ,addr g_usSymbolicLinkName,addr g_usDeviceName
+        .if eax == STATUS_SUCCESS            
+		    mov eax,pDriverObject
+		    assume eax:ptr DRIVER_OBJECT
+		    mov ecx,IRP_MJ_MAXIMUM_FUNCTION + 1
+		    .while ecx
+		        dec ecx
+		        mov [eax].MajorFunction[ecx * (sizeof PVOID)],offset DispatchControl
+		    .endw 
+		    mov [eax].DriverUnload,offset DriverUnload
+		    assume eax:nothing
+           	invoke AddCallGate,offset Ring0Fun
+            mov status,STATUS_SUCCESS
+        .else
+        	invoke IoDeleteDevice,pDeviceObject
+        .endif
+    .endif
+  
+    mov eax,status
+    ret
+
+DriverEntry endp
+
+end DriverEntry

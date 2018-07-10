@@ -1,0 +1,245 @@
+;MASMPlus 代码模板 - 普通的 Windows 程序代码
+
+.386
+.Model Flat, StdCall
+Option Casemap :None
+
+Include windows.inc
+Include user32.inc
+Include kernel32.inc
+Include gdi32.inc
+
+includelib gdi32.lib
+IncludeLib user32.lib
+IncludeLib kernel32.lib
+include macro.asm
+	
+	WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
+	IDM_EDIT_CUT           equ	40001
+	IDM_EDIT_COPY          equ	40002
+	IDM_EDIT_PASTE         equ	40003
+	IDM_EDIT_CLEAR         equ	40004
+	IDM_EDIT_RESET         equ	40005
+	CF_TCHAR 	       equ	CF_TEXT
+
+
+
+.DATA
+	szAppName	TCHAR	"ClipText",0
+	szDefaultText 	TCHAR 	"Default Text - ANSI Version",0
+	szCaption	TCHAR	"Clipboard Text Transfers - ANSI Version",0
+.DATA?
+	hInstance	HINSTANCE	?
+	pText 		PTSTR		?
+.CODE
+START:
+	invoke GetModuleHandle,NULL
+	invoke WinMain,eax,NULL,NULL,SW_SHOWDEFAULT
+	invoke ExitProcess,0
+WinMain proc hInst:DWORD,hPrevInst:DWORD,szCmdLine:DWORD,iCmdShow:DWORD
+	LOCAL wndclass   :WNDCLASSEX
+	LOCAL msg  :MSG
+	LOCAL hWnd :HWND
+	LOCAL hAccel:HACCEL
+
+	mov wndclass.cbSize,sizeof WNDCLASSEX	
+	mov wndclass.style,CS_HREDRAW or CS_VREDRAW	
+	mov wndclass.lpfnWndProc,offset WndProc
+
+	mov wndclass.cbClsExtra,0
+	mov wndclass.cbWndExtra,0
+	
+	push hInst
+	pop wndclass.hInstance
+	
+	invoke LoadIcon,hInst,addr szAppName
+	mov wndclass.hIcon,eax	
+	
+	invoke LoadCursor,NULL,IDC_ARROW
+	mov wndclass.hCursor,eax	
+	
+	invoke GetStockObject,WHITE_BRUSH
+	mov wndclass.hbrBackground,EAX
+	
+	lea eax,szAppName
+	mov wndclass.lpszMenuName,eax
+	mov wndclass.lpszClassName,eax
+
+	mov wndclass.hIconSm,0
+	
+	invoke RegisterClassEx, ADDR wndclass
+	.if (eax==0)
+	   invoke MessageBox,NULL,CTXT("This program requires Windows NT!"),szAppName, MB_ICONERROR
+           ret
+	.endif
+        
+   
+	invoke CreateWindowEx,NULL,
+			ADDR szAppName, 					;window class name
+			CTXT("No-Popup Nested Menu Demonstration"), 
+			WS_OVERLAPPEDWINDOW,					;window style
+			CW_USEDEFAULT,						;initial x position
+			CW_USEDEFAULT,						;initial y position
+			CW_USEDEFAULT, 						;initial x size
+			CW_USEDEFAULT,						;initial y size
+			NULL,							;parent window handle
+			NULL,							;window menu handle
+			hInst,							;program instance handle
+			NULL										;creation parameters
+	mov hWnd,eax
+
+
+  	invoke ShowWindow,hWnd,iCmdShow
+	invoke UpdateWindow,hWnd
+	
+	invoke	LoadAccelerators,hInstance,addr szAppName
+	mov	hAccel,eax
+
+	StartLoop:
+		invoke GetMessage,ADDR msg,NULL,0,0
+			cmp eax, 0
+			je ExitLoop
+				invoke TranslateMessage, ADDR msg
+				invoke DispatchMessage,  ADDR msg
+			jmp StartLoop
+	ExitLoop:
+	
+	mov eax,msg.wParam
+	ret
+WinMain endp
+
+
+WndProc proc hwnd:DWORD,uMsg:DWORD,wParam :DWORD,lParam :DWORD
+       LOCAL	bEnable:BOOL
+       LOCAL	hGlobal:HGLOBAL
+       LOCAL	hdc:HDC
+       LOCAL	pGlobal:PTSTR
+       LOCAL    ps:PAINTSTRUCT
+       LOCAL    rect:RECT
+
+	.if	uMsg == WM_CREATE
+		invoke	SendMessage,hwnd, WM_COMMAND, IDM_EDIT_RESET, 0
+
+		xor	eax,eax
+		ret	
+	.elseif	uMsg == WM_INITMENUPOPUP
+		invoke	IsClipboardFormatAvailable,CF_TCHAR
+        	.if	eax != 0  
+        		mov	eax,MF_ENABLED
+        	.else	
+        		mov	eax,MF_GRAYED
+        	.endif
+                invoke	EnableMenuItem,wParam,IDM_EDIT_PASTE,eax
+        	.if	pText != 0  
+        		mov	bEnable,MF_ENABLED
+        	.else	
+        		mov	bEnable,MF_GRAYED
+        	.endif		
+
+                invoke	EnableMenuItem,wParam,IDM_EDIT_CUT,	bEnable
+        	invoke	EnableMenuItem,wParam,IDM_EDIT_COPY,    bEnable
+        	invoke	EnableMenuItem,wParam,IDM_EDIT_CLEAR,	bEnable
+        	
+	.elseif uMsg == WM_COMMAND
+		mov	eax,wParam
+		and	eax,0FFFFh
+		.if	eax == IDM_EDIT_PASTE
+        						
+                        invoke	OpenClipboard,hwnd
+                        invoke	GetClipboardData,CF_TCHAR
+                        .if     (eax!=0)
+                        	mov	hGlobal,eax
+                        	invoke	GlobalLock,hGlobal
+                                mov	pGlobal,eax 
+				.if 	(pText!=0)
+                                        invoke	LocalFree,pText
+					mov	pText,NULL
+				.endif
+				invoke	GlobalSize,hGlobal
+				invoke	LocalAlloc,LMEM_FIXED or LMEM_ZEROINIT,eax
+        			mov	pText,eax
+             	;invoke	MessageBox,hwnd,pGlobal,NULL,MB_APPLMODAL	        			
+				invoke	lstrcpy,pText, pGlobal
+        			invoke	InvalidateRect,hwnd, NULL, TRUE
+			.endif
+        
+                        invoke	CloseClipboard
+	        	xor	eax,eax
+	        	ret
+		.elseif	(eax == IDM_EDIT_CUT)||(eax == IDM_EDIT_COPY)
+			.if 	(pText==0)
+                                xor	eax,eax
+                                ret
+                        .endif                         
+                        invoke	lstrlen,pText
+                        inc	eax
+                        mov	ecx,sizeof (TCHAR)
+                        mul	ecx
+                        invoke	GlobalAlloc,GHND or GMEM_SHARE,eax
+ 			mov	hGlobal,eax
+ 			invoke	GlobalLock,hGlobal
+ 			mov	pGlobal,eax
+        		invoke	lstrcpy,pGlobal, pText
+        		invoke	GlobalUnlock,hGlobal
+        		invoke	OpenClipboard,hwnd
+        		invoke	EmptyClipboard
+        		invoke	SetClipboardData,CF_TCHAR, hGlobal
+        		invoke	CloseClipboard
+        		mov	eax,wParam
+        		add	eax,0FFFFh
+                        .if 	(eax == IDM_EDIT_COPY)
+        			xor	eax,eax
+                                ret
+        		.endif
+        		jmp	@f
+                        ; fall through for IDM_EDIT_CUT
+             .elseif	eax==IDM_EDIT_CLEAR
+             	@@:
+
+                        .if 	(pText!=0)
+                                invoke	LocalFree,pText
+        			mov	pText,NULL
+        
+			.endif
+        		invoke	InvalidateRect,hwnd, NULL, TRUE
+        		xor	eax,eax
+        		ret
+             .elseif	eax==IDM_EDIT_RESET
+                        .if	(pText!=0)
+                                invoke	LocalFree,pText
+        			mov	pText,NULL
+			.endif     
+			invoke	lstrlen,addr szDefaultText
+			inc	eax
+			mov	ecx,sizeof (TCHAR)
+			mul	ecx
+			invoke	LocalAlloc,LMEM_FIXED or LMEM_ZEROINIT,eax
+                        mov	pText,eax
+        		invoke	lstrcpy,pText,addr szDefaultText
+	        	invoke	InvalidateRect,hwnd, NULL, TRUE
+        		xor	eax,eax
+        		ret
+             .endif
+	.elseif uMsg == WM_PAINT
+              invoke	BeginPaint,hwnd,addr ps
+              mov	hdc,eax 
+              invoke	GetClientRect,hwnd,addr rect
+              .if 	(pText != NULL)
+        		invoke	DrawText,hdc, pText, -1, addr rect, DT_EXPANDTABS or DT_WORDBREAK
+	      .endif        		
+       	      invoke	EndPaint,hwnd,addr ps
+        
+	      xor	eax,eax
+	      ret
+	.elseif uMsg == WM_DESTROY
+		
+	        invoke 	PostQuitMessage,NULL
+	        xor	eax,eax
+	        ret
+	.endif
+
+	invoke DefWindowProc,hwnd,uMsg,wParam,lParam
+	ret
+WndProc endp
+END START
+

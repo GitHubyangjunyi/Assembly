@@ -1,0 +1,147 @@
+C:\>upx -h
+
+                       Ultimate Packer for eXecutables
+    Copyright (C) 1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006
+UPX 2.03w       Markus Oberhumer, Laszlo Molnar & John Reiser    Nov 7th 2006
+
+Usage: upx [-123456789dlthVL] [-qvfk] [-o file] file..
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Commands:
+  -1     compress faster                   -9    compress better
+  --best compress best (can be slow for big files)
+  -d     decompress                        -l    list compressed file
+  -t     test compressed file              -V    display version number
+  -h     give this help                    -L    display software license
+
+命令：
+  -1    压缩最快                           -9    压缩最好
+  --best 压缩最好（大文件会压缩慢）
+  -d    解压缩                             -l    列表压缩的文件
+  -t    测试压缩的文件                     -V    显示版本数
+  -h    给出帮助                           -L    显示软件许可
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ 
+Options:
+  -q     be quiet                          -v    be verbose
+  -oFILE write output to `FILE'
+  -f     force compression of suspicious files
+  --no-color, --mono, --color, --no-progress   change look
+
+选项：
+  -q     直接退出（直译为安静）            -v   详细的
+  -oFILE 输出文件
+  -f     强制压缩文件
+  -- 没有 颜色      （空：译不出）
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Backup options:
+  -k, --backup        keep backup files
+  --no-backup         no backup files [default]
+
+备份选项：
+  -k  --备份          备份文件
+  --不备份            不备份文件[默认]
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Overlay options:
+  --overlay=copy      copy any extra data attached to the file [default]
+  --overlay=strip     strip any extra data attached to the file [DANGEROUS]
+  --overlay=skip      don't compress a file with an overlay
+
+覆盖选项：
+  --覆盖= 复制        复制任何附加到文件上的数据[默认]
+  --覆盖= 剥离        剥离（删除）任何附加到文件上的数据[危险]
+  --覆盖= 保留        不压缩文件的覆盖部分  
+  
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for atari/tos:
+  --all-methods       try all available compression methods
+  
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for djgpp2/coff:
+  --coff              produce COFF output [default: EXE]
+  --all-methods       try all available compression methods
+  --all-filters       try all available preprocessing filters
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for dos/com:
+  --8086              make compressed com work on any 8086
+  --all-methods       try all available compression methods
+  --all-filters       try all available preprocessing filters
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for dos/exe:
+  --8086              make compressed exe work on any 8086
+  --no-reloc          put no relocations in to the exe header
+  --all-methods       try all available compression methods
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for dos/sys:
+  --8086              make compressed sys work on any 8086
+  --all-methods       try all available compression methods
+  --all-filters       try all available preprocessing filters
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for ps1/exe:
+  --all-methods       try all available compression methods
+  --8-bit             uses 8 bit size compression [default: 32 bit]
+  --console-run       enables client/host transfer compatibility
+  --no-align          don't align to 2048 bytes [enables: --console-run]
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for tmt/adam:
+  --all-methods       try all available compression methods
+  --all-filters       try all available preprocessing filters
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for vmlinuz/386
+  --all-methods       try all available compression methods
+  --all-filters       try all available preprocessing filters
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for watcom/le:
+  --le                produce LE output [default: EXE]
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Options for win32/pe & rtm32/pe:
+  --compress-exports=0    do not compress the export section
+  --compress-exports=1    compress the export section [default]
+  --compress-icons=0      do not compress any icons
+  --compress-icons=1      compress all but the first icon
+  --compress-icons=2      compress all but the first icon directory [default]
+  --compress-resources=0  do not compress any resources at all
+  --keep-resource=list    do not compress resources specified by list
+  --strip-relocs=0        do not strip relocations
+  --strip-relocs=1        strip relocations [default]
+  --all-methods           try all available compression methods
+  --all-filters           try all available preprocessing filters
+
+Win32/PE 选项
+  --压缩-输出=0           不压缩输出节
+  --压缩-输出=1           压缩输出节[默认]
+  --压缩-图标=0           不压缩任何图标
+  --压缩-图标=1           压缩全部除第一个图标外
+  --压缩-图标=2           压缩全部除第一个图标目录外[默认]
+  --压缩-资源=0           不压缩任何资源
+  --保留-资源=列表        不压缩除列表指定的资源
+  --剥离-重定位=0         不删除重定位信息
+  --剥离-重定位=1         删除重定位[默认]
+  
+  
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+file..   executables to (de)compress
+
+This version supports:
+    arm/pe, atari/tos, bvmlinuz/386, djgpp2/coff, dos/com, dos/exe, dos/sys,
+    linux/amd64, linux/i386, linux/ppc32, mach/ppc32, ps1/exe, rtm32/pe,
+    tmt/adam, vmlinux/386, vmlinuz/386, watcom/le, win32/pe
+
+UPX comes with ABSOLUTELY NO WARRANTY; for details visit http://upx.sf.net
+

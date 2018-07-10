@@ -1,0 +1,106 @@
+		.386
+		.model flat,stdcall
+		option casemap:none
+
+include		windows.inc
+include		user32.inc
+includelib	user32.lib
+include		kernel32.inc
+includelib	kernel32.lib
+
+DLG_MAIN		EQU	1000
+IDC_EDIT		EQU	1001
+IDC_OK			EQU	1002
+IDC_CANCLE		EQU	1003
+ICO_MAIN		EQU	1005
+
+.data?
+hInstance		dd	?
+hWinmain		dd	?
+ProcessId		dd	?
+hProcess		dd	?
+NewData			dd	?
+.data
+szNoFind		db	'请先运行vplay.exe程序',0
+szErro			db	'无法打开进程',0
+szName			db	'vplay.exe',0
+TimerAddr		dd	00403000h
+.code
+_process	proc	uses	ebx esi edi
+		
+		LOCAL	@stProcess:PROCESSENTRY32
+		LOCAL	@hSnapShot
+		
+		invoke	RtlZeroMemory,addr @stProcess,sizeof @stProcess
+		mov	@stProcess.dwSize,sizeof @stProcess
+		invoke	CreateToolhelp32Snapshot,TH32CS_SNAPPROCESS,addr @stProcess
+		mov	@hSnapShot,eax
+		invoke	Process32First,@hSnapShot,addr @stProcess
+		.while	eax
+			invoke	lstrcmp,addr szName,addr @stProcess.szExeFile
+			.if	!eax
+				push	@stProcess.th32ProcessID
+				pop	ProcessId
+				jmp	Open
+			.endif
+			invoke	Process32Next,@hSnapShot,addr @stProcess
+		.endw
+		invoke	MessageBox,hWinmain,addr szNoFind,NULL,MB_OK
+		jmp	Exit
+		Open:
+			invoke	OpenProcess,PROCESS_ALL_ACCESS,FALSE,ProcessId
+			.if	eax
+				mov	hProcess,eax
+			.else
+				invoke	MessageBox,hWinmain,addr szErro,NULL,MB_OK
+				jmp	Exit
+			.endif
+			invoke	WriteProcessMemory,hProcess,TimerAddr,addr NewData,4,NULL
+		Exit:
+			invoke	CloseHandle,@hSnapShot
+			invoke	CloseHandle,hProcess
+			
+		ret
+
+_process endp
+
+_input		proc	uses	ebx esi edi hWnd,wMsg,wParam,lParam
+		
+		mov	eax,wMsg
+		.if	eax == WM_CLOSE
+			invoke	EndDialog,hWnd,NULL
+		.elseif	eax == WM_COMMAND
+			mov eax,wParam
+			.if	ax == IDC_OK
+				invoke	GetDlgItemInt,hWnd,IDC_EDIT,NULL,FALSE				
+				mov	NewData,eax
+				invoke	_process				
+			.elseif	ax == IDC_CANCLE
+				invoke	EndDialog,hWnd,NULL
+			.elseif	ax == IDC_EDIT
+				invoke	GetWindowTextLength,lParam
+				mov	ebx,eax
+				invoke	GetDlgItem,hWnd,IDC_OK
+				invoke	EnableWindow,eax,ebx
+			.endif
+		.elseif	eax == WM_INITDIALOG
+			invoke GetDlgItem,hWnd,IDC_OK
+			invoke	EnableWindow,eax,FALSE
+			push	hWnd
+			pop	hWinmain
+			invoke	LoadIcon,hInstance,ICO_MAIN
+			invoke	SendMessage,hWnd,WM_SETICON,ICO_MAIN,eax
+		.else
+			mov	eax,FALSE
+			ret	
+		.endif
+		mov	eax,TRUE
+	ret
+
+_input endp
+start:
+		invoke	GetModuleHandle,NULL
+		mov	hInstance,eax
+		invoke	DialogBoxParam,hInstance,DLG_MAIN,NULL,addr _input,NULL
+		invoke	ExitProcess,NULL
+		end	start

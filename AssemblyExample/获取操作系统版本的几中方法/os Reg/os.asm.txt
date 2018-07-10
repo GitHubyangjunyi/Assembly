@@ -1,0 +1,52 @@
+			.386
+			.model flat, stdcall
+			option casemap:none
+include		windows.inc
+include		user32.inc
+include		kernel32.inc
+include		Advapi32.inc
+includelib		user32.lib
+includelib		kernel32.lib
+includelib		Advapi32.lib
+
+			.data
+szSubKey		db	"SOFTWARE\Microsoft\Windows NT\CurrentVersion",0
+szProductName	db	"ProductName",0
+szCSDVersion	db	"CSDVersion",0
+szType		db	"REG_SZ",0
+szCaption		db	"Your OS version is",0
+szSpace		db	" ",0
+
+			.data?
+szProductNameBuf	db	256 dup(?)
+szCSDVersionBuf	db	256 dup(?)
+dwCbData		dd	?
+hKey			dd	?
+
+			.code
+start:
+	invoke	RegOpenKeyEx,HKEY_LOCAL_MACHINE,addr szSubKey,NULL, \
+					 KEY_QUERY_VALUE,addr hKey
+	.if	eax == ERROR_SUCCESS
+		invoke	RegQueryValueEx,hKey,addr szProductName,NULL,\
+						    addr szType,NULL,addr dwCbData	
+		.if	eax == ERROR_SUCCESS
+			invoke	RegQueryValueEx,hKey,addr szProductName,NULL,addr szType,\
+							    addr szProductNameBuf,addr dwCbData	
+		.endif	
+		
+		invoke	RegQueryValueEx,hKey,addr szCSDVersion,NULL, \
+						    addr szType,NULL,addr dwCbData	
+		.if	eax == ERROR_SUCCESS
+			invoke	RegQueryValueEx,hKey,addr szCSDVersion,NULL,addr szType,\
+							    addr szCSDVersionBuf,addr dwCbData
+		.endif
+		
+		invoke 	lstrcat,addr szProductNameBuf,addr szSpace
+		invoke 	lstrcat,addr szProductNameBuf,addr szCSDVersionBuf
+		
+		invoke	MessageBox,NULL,addr szProductNameBuf,addr szCaption,0
+	.endif
+	invoke	RegCloseKey,hKey
+	invoke	ExitProcess,0
+end	start		

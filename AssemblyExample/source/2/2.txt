@@ -1,0 +1,139 @@
+;****** File name 	 :\1.exe
+;****** Creator          :wangjun
+;****** Date of Creation :2007/04/10
+;****** Description	 :double process watch
+
+
+.586
+.model flat,stdcall
+option casemap:none
+
+   include windows.inc
+   include user32.inc
+   include kernel32.inc
+   
+   includelib user32.lib
+   includelib kernel32.lib
+
+
+WinMain proto :DWORD,:DWORD,:DWORD,:DWORD
+
+
+.data
+   thetwo      db '2.exe',0
+   format      db '%s',0	
+   onename     db '\1.exe',0
+   theone      db '1.exe',0	
+   ClassName   db "MainWinClass",0
+   AppName     db "Main Window",0
+
+.data?
+   StartupInfo	STARTUPINFO <?>
+   ProcessInformation PROCESS_INFORMATION <?>
+   ommandLine   db MAX_PATH dup (?)
+   MutexHandle  dd ?
+   hInstance HINSTANCE ?
+   CommandLine LPSTR ?
+
+.code
+
+
+; ---------------------------------------------------------------------------
+
+
+start:
+	invoke GetModuleHandle, NULL
+	mov    hInstance,eax
+	
+	invoke GetCommandLine
+	mov    CommandLine,eax
+	
+	invoke WinMain, hInstance,NULL,CommandLine, SW_SHOWDEFAULT
+	invoke ExitProcess,eax
+
+WinMain proc hInst:HINSTANCE,hPrevInst:HINSTANCE,CmdLine:LPSTR,CmdShow:DWORD
+	LOCAL wc:WNDCLASSEX
+	LOCAL msg:MSG
+	LOCAL hwnd:HWND
+	
+	mov   wc.cbSize,SIZEOF WNDCLASSEX
+	mov   wc.style, CS_HREDRAW or CS_VREDRAW
+	mov   wc.lpfnWndProc, OFFSET WndProc
+	mov   wc.cbClsExtra,NULL
+	mov   wc.cbWndExtra,NULL
+	push  hInstance
+	pop   wc.hInstance
+	mov   wc.hbrBackground,COLOR_BTNFACE+1
+	mov   wc.lpszMenuName,NULL
+	mov   wc.lpszClassName,OFFSET ClassName
+	
+	invoke LoadIcon,NULL,IDI_APPLICATION
+	mov   wc.hIcon,eax
+	mov   wc.hIconSm,eax
+	
+	invoke LoadCursor,NULL,IDC_ARROW
+	mov   wc.hCursor,eax
+	
+	invoke RegisterClassEx, addr wc
+	INVOKE CreateWindowEx,NULL,ADDR ClassName,ADDR AppName,\
+           WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,\
+           CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,NULL,NULL,\
+           hInst,NULL
+	mov   hwnd,eax
+	invoke UpdateWindow, hwnd
+	
+	.WHILE TRUE
+		invoke GetMessage, ADDR msg,NULL,0,0
+		.BREAK .IF (!eax)
+		invoke TranslateMessage, ADDR msg
+		invoke DispatchMessage, ADDR msg
+	.ENDW
+	
+	mov     eax,msg.wParam
+	ret
+WinMain endp
+
+wj proc 							    ;自定义线程函数
+	invoke GetStartupInfo,addr StartupInfo 			    ;获取STARTUPINFO结构
+	.while TRUE						    ;无限循环
+		invoke OpenMutex,MUTANT_ALL_ACCESS,FALSE,addr theone;打开互斥元素如果成功表示"1.exe"互斥元素已经存在跳到(1)关闭该语柄，否则执行(2)处
+		.if !eax;(2)				            ;也就是说程序1.exe没启动		
+			invoke CreateProcess,NULL,addr ommandLine,NULL,NULL,FALSE,0,NULL,NULL,addr StartupInfo,addr ProcessInformation ;启动程序1.exe
+			invoke WaitForSingleObject,ProcessInformation.hProcess,INFINITE;等待程序1.exe结束
+			invoke	CloseHandle,ProcessInformation.hProcess		       ;关闭1.exe主进程
+			invoke CloseHandle,ProcessInformation.hThread		       ;关闭1.exe主线程
+		.else
+			invoke CloseHandle,eax;(1)				       ;关闭打开"1.exe"互斥元素的语柄	
+		.endif
+		invoke Sleep,1							       ;停止1ms
+	.endw
+	ret
+
+wj endp
+
+WndProc proc hWnd:HWND, uMsg:UINT, wParam:WPARAM, lParam:LPARAM
+	LOCAL	@buffer[512]:byte	
+	.IF uMsg==WM_DESTROY
+		invoke CloseHandle,MutexHandle			   ;关闭互斥元数"2.exe"语柄
+		invoke PostQuitMessage,NULL
+	.ELSEIF uMsg==WM_CREATE
+		
+
+		invoke GetCurrentDirectory,MAX_PATH,addr ommandLine;得到当前目录
+		invoke lstrcat,addr ommandLine,addr onename	   ;得到该程序路径	
+		;invoke wsprintf,addr @buffer,addr format,addr ommandLine
+		;invoke MessageBox,hWnd,addr ommandLine,NULL,MB_OK
+		invoke CreateThread,NULL,0,addr wj,NULL,0,NULL	   ;建立线程	
+		mov MutexHandle,eax
+		invoke CreateMutex,NULL,FALSE,addr thetwo	   ;建立互斥元数"2.exe"
+	.ELSE
+		invoke DefWindowProc,hWnd,uMsg,wParam,lParam		
+		ret
+	.ENDIF
+	
+	xor eax,eax
+	ret
+WndProc endp
+
+
+end start

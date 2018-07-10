@@ -1,0 +1,124 @@
+			.386 
+			.model flat,stdcall 
+			option casemap:none 
+include 		windows.inc 
+include 		user32.inc 
+include 		kernel32.inc 
+include 		vfw32.inc
+includelib 		user32.lib 
+includelib 		kernel32.lib 
+includelib		vfw32.lib
+
+DLG_MAIN		equ	1000
+IDA_MAIN		equ	1000
+IDM_MAIN		equ	1000
+IDM_ABOUT		equ	4001
+IDM_EXIT		equ	4002
+
+			.data
+szAbout		db	"关于",0
+szVersion		db	'	    摄像头利用程序 	       ',0dh,0ah
+			db	' Corpright(C) 2007 谢家路 河南大学.',0dh,0ah
+			db	'	       版权所有.              ',0dh,0ah,0
+szCaptureFile	db	"CAP.AVI",0
+gachBuffer		db	20 dup(0) 
+szDeviceName	db    80 dup(0)
+szDeviceVersion	db	80 dup(0)
+hInstance 		HINSTANCE ? 
+hWndCap 		HINSTANCE ? 
+CapDriverCaps	CAPDRIVERCAPS <?>
+CapStatus		CAPSTATUS <?>
+
+		.code
+_ProcDlgMain	proc	uses ebx edi esi,hWnd,wMsg,wParam,lParam
+		mov	eax,wMsg
+		.if	eax == WM_CLOSE
+			;停止捕获
+			invoke	SendMessage, hWndCap, WM_CAP_ABORT, 0, 0
+			;断开同驱动器的连接
+			invoke	SendMessage, hWndCap, WM_CAP_DRIVER_DISCONNECT, 0, 0			
+			invoke	PostQuitMessage, 0
+			invoke	EndDialog, hWnd, NULL
+		.elseif	eax == WM_INITDIALOG
+		
+			;创建一个捕获窗口
+			invoke	capCreateCaptureWindow, NULL, WS_CHILD or WS_VISIBLE, \
+					0, 0, 640, 480, hWnd, 0
+			mov	hWndCap,eax
+			
+			;将捕获窗同驱动器连接
+			invoke	SendMessage, hWndCap, WM_CAP_DRIVER_CONNECT, 0, 0 
+			
+			;枚举已安装驱动的版本和名称
+			xor	ecx,ecx
+@@:			
+			invoke	capGetDriverDescription, ecx, addr szDeviceName, \
+					sizeof szDeviceName, addr szDeviceVersion, sizeof szDeviceVersion
+			.if	eax != 0
+				invoke MessageBox, NULL,addr szDeviceName,addr szDeviceVersion,MB_OK
+			.endif
+			inc	ecx
+			cmp	ecx,10
+			jl	@B			
+						
+			;获得驱动器的能力,相关的信息放在结构变量CapDriverCaps中
+			invoke	SendMessage, hWndCap, WM_CAP_DRIVER_GET_CAPS, \
+					sizeof CAPDRIVERCAPS, addr CapDriverCaps
+			
+			;设置Preview模式的显示速率
+			invoke	SendMessage, hWndCap, WM_CAP_SET_PREVIEWRATE, 66, 0
+			;启动Preview模式
+			invoke	SendMessage, hWndCap, WM_CAP_SET_PREVIEW, TRUE, 0
+			;检查驱动器是否有叠加能力
+			.if	CapDriverCaps.fHasOverlay
+				;启动Overlay模式
+				invoke	SendMessage, hWndCap, WM_CAP_SET_OVERLAY, TRUE, 0
+			.endif
+			.if	CapDriverCaps.fHasDlgVideoSource
+				;Video source 对话框
+				invoke	SendMessage, hWndCap, WM_CAP_DLG_VIDEOSOURCE, 0, 0
+			.endif
+			.if	CapDriverCaps.fHasDlgVideoFormat
+				;Video format 对话框
+				invoke	SendMessage, hWndCap, WM_CAP_DLG_VIDEOFORMAT, 0, 0
+			.endif
+			.if   CapDriverCaps.fHasDlgVideoDisplay
+				;Video display 对话框
+				invoke	SendMessage, hWndCap, WM_CAP_DLG_VIDEODISPLAY, 0, 0
+			.endif				
+			
+			;获得驱动器的状态,相关的信息放在结构变量CapStatus中
+			invoke	SendMessage, hWndCap,  WM_CAP_GET_STATUS, sizeof CAPSTATUS, addr CapStatus			
+			;设置窗口位置和大小
+			invoke 	SetWindowPos, hWndCap, NULL, 100, 100, \
+					CapStatus.uiImageWidth, CapStatus.uiImageHeight, SWP_NOMOVE or SWP_NOSIZE
+			
+			;设定文件名
+			invoke	SendMessage, hWndCap, WM_CAP_FILE_SET_CAPTURE_FILEA, 0, addr szCaptureFile
+			
+			;设定文件大小单位为BYTE
+			invoke	SendMessage, hWndCap, WM_CAP_FILE_ALLOCATE, 0, 1024 * 1024 * 5
+			
+			;开始捕获
+			invoke	SendMessage, hWndCap, WM_CAP_SEQUENCE, 0, 0
+		.elseif	eax == WM_COMMAND
+			mov	eax,wParam
+			.if	ax ==	IDM_EXIT 
+				invoke	EndDialog,hWnd,NULL			
+			.elseif	ax ==   IDM_ABOUT
+				invoke MessageBox,0,addr szVersion,addr szAbout,MB_OK
+			.endif
+		.else
+			mov	eax,FALSE
+			ret
+		.endif		   
+		mov	eax,TRUE
+		ret		
+_ProcDlgMain	endp
+
+start:
+		invoke	GetModuleHandle,NULL
+		mov		hInstance,eax
+		invoke	DialogBoxParam,hInstance,DLG_MAIN,NULL,offset _ProcDlgMain,0
+		invoke	ExitProcess,NULL
+end	start

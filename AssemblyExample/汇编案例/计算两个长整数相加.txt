@@ -1,0 +1,147 @@
+;计算两个长整数相加
+;作者:永夜的极光
+;时间:2007-11-14
+
+;程序运行结果
+;Please input num1:12345678901234567890
+;Please input num2:987654321987654321
+;num1+num2=13333333223222222211
+;Press any key to exit...
+
+assume ds:data,cs:code,ss:stack
+data segment
+    inf0 db 0dh,0ah,'Please input num1:$'
+    num1 db 30,?,30 dup ('0')
+    inf1 db 0dh,0ah,'Please input num2:$'
+    num2 db 30,?,30 dup ('0')
+    inf2 db 0dh,0ah,'num1+num2=$'
+    sum     db 31 dup (0)    ;保存和的地方,上面限制两个数不超过29位,和最多30位,最后一位放'$'
+    inf3 db 0dh,0ah,'Press any key to exit...$'
+data ends
+
+stack segment
+    dw 80 dup (0)
+stack ends
+
+code segment
+start:
+    mov ax,data    ;设置数据和栈的段寄存器
+    mov ds,ax
+    mov ax,stack
+    mov ss,ax
+    call main    ;调用主函数
+    
+    lea dx,inf3    ;提示输入任意键退出
+    mov ax,0900H
+    int 21H
+    mov ax,0700H    ;接受一个按键,不回显
+    int 21H
+    mov ax,4c00H
+    int 21H
+
+main proc near
+    
+    lea dx,inf0    ;提示输入两个整数
+    mov ax,0900H
+    int 21H
+    lea dx,num1
+    mov ax,0a00H
+    int 21H
+    lea dx,inf1
+    mov ax,0900H
+    int 21H
+    lea dx,num2
+    mov ax,0a00H
+    int 21H
+    
+    mov cl,[num1+1]    ;调用函数,把字符串变为数字,这里没有做错误检查,假设用户输入是正确的数字
+    mov ch,0                ;cl保存字符串长度,si指向字符串起始位置
+    lea si,[num1+2]
+    call numchange
+    mov cl,[num2+1]
+    lea si,[num2+2]
+    call numchange
+    
+    mov cl,[num1+1]    ;把两个数字的位数分别赋给cl和dl,si和di指向这两串数字的最后一个数字
+    mov dl,[num2+1]
+    lea si,[num1+1]
+    add si,cx
+    lea di,[num2+1]
+    add di,dx
+    lea bx,[sum]        ;bx指向保存结果的位置
+    
+    cmp dl,cl                ;比较两个数字串的长度,cl存放较短数字串的长度,dl存放较长的
+    jnb c1                    ;                                            si指向较短数字串的末尾,di指向较长的
+    xchg dl,cl
+    xchg di,si
+c1:
+    push dx                    ;保存较长数字串的长度,后面判断和的位数要用
+    clc                            ;清除进位标志
+    add bx,dx                ;bx向后移动到和的最后一位(先假设和比最长数字串长度大1)
+    l1:
+        mov al,[si]        ;放第一个数
+        adc al,ds:[di];进位加法 加第二个数
+        aaa                        ;按非压缩BCD码整理(如果cl中的数字后四位大于9,则cl后四位加6,不向前四位进位,而是向ah进位)
+        mov [bx],al        ;把和存入保存结果的地方
+        dec bx                ;指针前移
+        dec dl
+        dec si
+        dec di
+    loop l1
+    mov al,0                ;这三句是处理最后一次加法有进位的情况,比如:500+500
+    adc al,0
+    mov [bx],al
+    cmp dl,0                ;dl如果等于0,说明两个数字串都加完了,如果不等于0,则表示di指向的数字串还没处理完
+    jz sum_end
+    mov cl,dl                ;还剩下dl个数字没处理,所以要循环dl次,把dl赋值给cl
+    l2:
+        mov al,[di]        ;要处理的数字
+        adc al,[bx]        ;bx指向的是保存和的地方,如果没有修改过的话,那片空间都是0不直接加0的原因是,考虑上面的循环最后一次加法有进位的情况
+        aaa                        ;整理
+        mov [bx],al        ;保存和
+        dec di                ;指针前移
+        dec bx
+    loop l2
+    mov al,0                ;还是处理最后一次加法有进位的情况
+    adc al,0
+    mov [bx],al
+sum_end:
+    pop cx                    ;栈里面保存的是较长数字串的长度
+    inc cx                    ;这个长度加1,就是和的长度
+    lea si,sum            ;调用函数,把数字变为字符
+    call numchange
+    mov byte ptr [si],'$';在末尾加上'$'
+        
+    lea dx,inf2            ;输出提示语句
+    mov ax,0900H
+    int 21H
+    
+    lea dx,sum            ;如果和的第一位是0,说明没有进位,这个0不显示
+    cmp [sum],'0'
+    jnz ok
+    inc dx
+ok:
+    mov ax,0900H        ;输出结果
+    int 21H
+    ret
+
+main endp
+
+;函数功能:数字字符串和数字串互相转换
+;输入参数:si 指向第一个待处理的数字(或数字字符)
+;                    cx 待处理的长度
+;输出参数:无
+numchange proc near
+    
+    numchange_l1:
+        xor byte ptr [si],30H    ;异或30H,数字和数字字符就可以互相转换了
+        inc si
+    loop numchange_l1                ;循环次数cx是作为参数传入的
+    ret
+
+numchange endp
+
+code ends
+end start
+
+

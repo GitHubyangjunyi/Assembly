@@ -1,0 +1,6 @@
+ShutDown v1.2 by BlackLight 2001
+Mini program that allows you to
+power-off ATX systems, or reboot
+your computer, from the command-line
+or by starting it (it will ask you
+what you want).

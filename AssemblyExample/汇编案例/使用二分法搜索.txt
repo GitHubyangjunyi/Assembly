@@ -1,0 +1,246 @@
+;输入升序数据,并使用二分法搜索
+;作者:永夜的极光
+;时间:2007-11-15
+
+;程序运行结果:
+;Please input ascending data(0<data<=255)
+;Divide with any char except 0~9:
+;1 2 3 40 50 60 100 150 200 210 220 250 255
+;Witch num you want to find:1
+;This num is in position 01
+;Find another num(Y/N)?y
+;Witch num you want to find:50
+;This num is in position 05
+;Find another num(Y/N)?y
+;Witch num you want to find:255
+;This num is in position 13
+;Find another num(Y/N)?y
+;Witch num you want to find:101
+;Sorry,cannot find this num!
+;Find another num(Y/N)?n
+;Press any key to exit...
+
+assume ds:data,cs:code,ss:stack
+data segment
+    inf0 db 0dh,0ah,'Please input ascending data(0<data<=255)',13,10,'Divide with any char except 0~9:',13,10,'$'
+    buf db 250,?,250 dup ('0')    ;保存输入数据字符串的缓冲区
+    table db 100 dup (0)                ;分析输入的字符串,分解为数字,保存在这个表中
+    inf1 db 0dh,0ah,'Witch num you want to find:$'
+    num db ?    ;保存转换后的待寻找的数据
+    inf2 db 0dh,0ah,'Sorry,cannot find this num!$'
+    buf2 db 4,?,0,0,0,0    ;接受输入待寻找数据的缓冲区
+    inf3 db 0dh,0ah,'This num is in position $'
+    inf4 db 13,10,'Find another num(Y/N)?$'
+    inf_end db 13,10,'Press any key to exit...$'
+data ends
+
+stack segment
+    dw 80 dup (0)
+stack ends
+
+code segment
+start:
+    mov ax,data
+    mov ds,ax
+    mov es,ax
+    mov ax,stack
+    mov ss,ax
+    call main    ;调用主函数
+    
+    lea dx,inf_end    ;提示按任意键结束
+    mov ax,0900H
+    int 21H
+    mov ax,0700H
+    int 21H
+    mov ax,4c00H
+    int 21H
+
+main proc near
+    
+    lea dx,inf0    ;提示输入字符串,并接受输入,存在buf
+    mov ah,09H
+    int 21H
+    lea dx,buf
+    mov ah,0aH
+    int 21H
+    
+    call SaveToArray    ;调用函数,处理输入的字符串,整理为数字数组
+    mov bp,cx        ;保存数组的长度
+    
+find_value:
+    call init        ;清空buf2中的数据和要搜索的数字,避免第二次搜索时出错
+    call getfindnum        ;获取要搜索的数字,处理后放入num
+    
+    mov cx,bp    ;bp保存的是数组长度
+    shr cx,1    ;cx除2,取整
+    lea si,[table]    ;si指向第一个数字,di指向最后一个数字,bx指向中间的数字
+    lea bx,[table]
+    lea di,ds:[table+bp-1]
+    add bx,cx
+
+    
+    call HalfFind    ;用二分法搜索,函数调用后,si=di
+    mov al,[num]    ;把要搜索的值放入al
+    cmp al,[si]        ;比较要搜索的值和si指向的值
+    jnz no_find        ;如果不相等,说明不存在
+    
+    lea dx,[inf3]    ;如果相等,那这个值就是要搜索的值了,那么先显示提示语句
+    mov ah,09H
+    int 21H
+    
+    mov ax,si        ;这3行是求出si指向的值跟table起始位置的差值,保存在al,其实也就是搜索到的数值的下标
+    lea bx,[table]
+    sub ax,bx
+    inc ax        ;习惯上从1开始编号,所以这个要加1
+    mov bl,10    ;下标除10,刚好余数在ah,商在al,一起增加30H,商是十位,余数是个位
+    div bl
+    add ax,3030H
+    
+    mov dl,al    ;先输出十位
+    mov bl,ah
+    mov ah,2
+    int 21H
+    mov dl,bl    ;再输出个位
+    int 21H
+    jmp short again    ;跳转到询问是否重复
+    
+no_find:
+    lea dx,[inf2]    ;如果没找到的话,提示没有找到
+    mov ax,0900H
+    int 21H
+    
+again:
+    lea dx,[inf4]    ;询问是否重复查找
+    mov ax,0900H
+    int 21H
+    mov ax,0100H    ;接受一个字符输入并回显
+    int 21H
+    cmp al,'y'        ;比较输入的字符,如果是y或者Y,就返回到上面,继续搜索
+    jz find_value
+    cmp al,'Y'
+    jz find_value
+    ret        ;如果输入其他字符,那主函数结束,返回
+main endp
+
+;函数功能:初始化待搜索数字,和buf2
+;输入参数:无
+;输出参数:无
+init proc near
+    
+    mov byte ptr [num],0    ;待搜索数字初始化为0
+    mov byte ptr [buf2+1],0    ;实际输入字符数清0
+    mov word ptr [buf2+2],0    ;缓冲区清0
+    mov word ptr [buf2+4],0
+    ret
+
+init endp
+
+;函数功能:提示用户输入要搜索的数字,接受输入,并整理为数字,存放到num里面
+;输入参数:无
+;输出参数:[num]保存了要搜索的数字
+getfindnum proc near
+    
+    lea dx,inf1    ;提示输入
+    mov ax,0900H
+    int 21H
+    lea dx,buf2    ;接受输入到缓冲区buf2
+    mov ax,0a00H
+    int 21H
+    
+    mov cl,[buf2+1]    ;实际输入字符数
+    lea si,[buf2+2]    ;缓冲区实际开始位置
+    main_l1:
+        mov al,[num]    ;把数字字符串整理为数字
+        mov bl,10
+        mul bl
+        add al,[si]
+        sub al,30H
+        mov [num],al
+        inc si
+    loop main_l1
+    
+    ret
+
+getfindnum endp
+
+;函数功能:用二分法搜索指定数字
+;输入参数:si 指向被搜索数组的第一个数字
+;                    di 指向被搜索数组的最后一个数字
+;                    bx 指向被搜索数组的中间数字
+;输出参数:si和di指向同一个数字,通过判断这个数字是否等于要搜索的数字,就可以判断是否可以找到
+HalfFind proc near
+    cmp si,di    ;如果si和di都指向了同一个数字,那么表示搜索结束,可以直接返回
+    jz return
+    mov al,[num]    ;al存放要搜索的数字
+    cmp [bx],al        ;与bx指向的数字比较,bx指向的是si和di的中间
+    ja above        ;如果[bx]比较大
+    jb below        ;如果[bx]比较小
+    mov si,bx        ;如果两者相等,则si和di都指向bx指向的位置,这个数就是要找的数,可以直接返回
+    mov di,bx
+    jmp short return
+above:    ;如果[bx]比较大,也就是说,要搜索的数据在[si]和[bx-1]之间
+    mov cx,bx    ;下面三句计算si和bx的差值
+    mov ax,si
+    sub cx,ax
+    shr cx,1    ;差值除2取整
+    mov di,bx    ;di指向bx指向的位置
+    dec di    ;di再前移一位,因为数据比[bx]小,所以肯定在[si]和[bx-1]之间
+    sub bx,cx    ;bx指向新的si和di中间
+    call HalfFind    ;递归调用,此时的si和di的范围已经缩小了一半了
+    jmp short return    ;跳转到返回语句
+below:    ;对于[bx]比待搜索数字小的情况,和上面的处理方式差不多,也是递归调用,只不过移动的是si
+    mov cx,di
+    mov ax,bx
+    sub cx,ax
+    shr cx,1
+    mov si,bx
+    inc si
+    add bx,cx
+    call HalfFind
+    jmp short return
+return:
+    ret
+
+HalfFind endp
+
+;函数功能:把输入的字符串整理为数组
+;输入参数:无
+;输出参数:cx 整理出来的数组长度,数组存放在table里面
+SaveToArray proc near
+    
+    mov cl,[buf+1]    ;输入字符串的长度
+    mov ch,0
+    lea si,[buf+2]    ;指向输入字符串的起始位置
+    lea di,[table]    ;指向存放整理后数字的位置
+    mov bh,0        ;bh保存的是数组长度
+    SaveToArray_l1:
+        cmp byte ptr [si],'0'    ;如果这个字符不在0~9范围内,说明上一个数字输入结束
+        jb EndOfANum
+        cmp byte ptr [si],'9'
+        ja EndOfANum
+        mov al,[di]    ;如果这个字符是数字字符,那么把原来的值乘10,加上这个数字,减去30H
+        mov bl,10
+        mul bl
+        mov bl,[si]
+        sub bl,'0'
+        add al,bl
+        mov [di],al    ;保存回去
+        jmp short continue    ;继续下一次循环
+    EndOfANum:    ;上一个数字输入完毕
+        cmp byte ptr [di],0    ;如果现在[di]的值为0,那不进行处理,因为已经规定,数字不为0
+        jz continue
+        inc di    ;如果[di]不为0,则di后移一位
+        inc bh    ;数组长度加1
+    continue:
+        inc si    ;si后移一位
+    loop SaveToArray_l1    ;循环
+    inc bh    ;最后找到的一个数字,还没有计算进数组长度,所以这里加了1
+    mov cl,bh    ;数组长度保存到cx
+    mov ch,0
+    ret
+
+SaveToArray endp
+
+code ends
+end start
+

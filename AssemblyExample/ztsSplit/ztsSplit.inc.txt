@@ -1,0 +1,46 @@
+;==============================================================================
+;  常量
+;==============================================================================
+
+IDC_STATIC             equ       -1
+
+IDI_MAIN               equ       900
+IDI_FOLDER             equ       901
+
+;----==== 简介型界面 ====----
+
+IDC_RADIO_SPLIT        equ       2001
+IDC_RADIO_MERGE        equ       2002
+IDC_EDIT_FILE          equ       2003
+IDC_BTN_FILE           equ       2004
+IDC_EDIT_FOLDER        equ       2005
+IDC_BTN_FOLDER         equ       2006
+IDC_EDIT_SIZE          equ       2007
+IDC_RADIO_KB           equ       2008
+IDC_RADIO_MB           equ       2009
+IDC_BTN_START          equ       2010
+IDC_BTN_EXIT           equ       2011
+IDC_PROGRESS           equ       2012
+
+;----==== 菜单 ====----
+
+IDM_SYSMENU            equ       1100
+
+;==============================================================================
+;  提示信息
+;==============================================================================
+
+.data
+strMainTip       db  "直接拖动一个文件来实现分割/合并",0
+strSplitTip      db  "选中该选项则处于分割状态",0
+strMergeTip      db  "选中该选项则处于合并状态",0
+strFileTip       db  "准备分割/合并的文件",0
+strBtnFileTip    db  "选择需要分割/合并的文件",0
+strFolderTip     db  "分割/合并后文件存放的目录",0
+strBtnFolderTip  db  "选择分割/合并后文件存放的目录",0
+strSizeTip       db  "输入分割大小",0
+strKbTip         db  "分割大小的单位是 KB",0
+strMbTip         db  "分割大小的单位是 MB",0
+strProgressTip   db  "分割/合并进度指示器",0
+strStartTip      db  "开始分割/合并文件",0
+strExitTip       db  "退出程序",0

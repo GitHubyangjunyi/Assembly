@@ -1,0 +1,458 @@
+用汇编计算圆周率 
+
+概述：
+    用汇编语言编制计算程序并不是强项，特别是在涉及到浮点计算时，但汇编的一个好处就是速度快，所以在整数计算时可以试一下。本文的理论基础来自是电脑杂志1996年第10期，作者郭继展发表的一篇文章，作者提出一个公式：
+   PI=16arctg(1/5)-4arctg(1/239)
+在展开成两个级数之和，然后整理得到：
+  PI=16x(1/5-1/(5^3/3)+1/(5^5/5)-1/(5^7/7)+...)-4x(1/239-1/(239^3/3)+1/(239^5/5)-1/(239^7/7)+...)
+       =4x(4x5/25-239/57121)/1-4x(4x5/25^2-239/57121^2)/3+4x(4x5/25^3-239/57121^3)/5-...
+   我对以上公式和推导一看就头疼，但根据它编出的程序却可以在4分钟内算出圆周率的小数点下8万位!（在P5/200上）想当年祖冲之算了一生才算到3.14159265，十九世纪英国人香克思用了一生才算到小数点下707位。
+   本程序的难点就是如何达到小数点下这么多位的精度，这个办法就是：在计算机中一个 WORD 可以表示0到65535，我们可以在内存定义一个字来表示五位数，如果要算到小数点下10000位，则定义2000个字来表示它，如计算239/57121时，可以用23900000/57121，得到小于五位的结果存到第一个字中，然后用余数乘以100000再除57121，得到小于五位的结果存到第二个字中，依此类推。为了计算时不至于溢出，本程序动用一个双字来表示五位数，再用一个段64K来表示一个高精度数，共可以表示（65536/4）*5 共有小数点下 81920 位。一共用到三个段，第一个段存储（4*4*5/25^n），第二个段存储（4*239/57121^n），第三个段存储最后的结果即 PI。
+    本程序的意义就在于提出了一个表示高精度数的办法，如果内寸足够的话，理论上可以进行任何精度的计算。这里是编译好的可执行文件：pi.com，计算结果8万位的PI值：pi.txt，还有本程序要用到的两个公用子程序 scanf.asm 和 printf.asm，用于读入键盘数字输入和屏幕数字输出。（引用本程序时请注明出处，并请勿改动版权信息）
+
+源程序：
+
+.386
+CODE    SEGMENT USE16
+        ASSUME    CS:CODE,DS:CODE
+        ORG    100H
+start:
+        jmp    install
+
+HANDLE      DW    ?
+_MIN        DW    ?
+_SEC        DW    ?
+_SEC1       DW    ?
+_A          DD    ?
+_B          DD    ?
+_FS_POINT   DW    0
+_GS_POINT   DW    0
+_DIV        DD    1
+FLAG        DB    ?             ;=1 +
+DIGITAL     DD    5000    ;how many points want to calculate
+POINT       DW    ?    ;total point /5
+NUM_POINT   DW    ?    ;total point /5 * 4
+_COUNT      DD    ?
+TMP_NUM0    DD    ?
+TMP_NUM     DD    10 dup (?)
+KEY_BUFF    DB    6,0,6 dup (0)
+
+D_SAVE      DB    'Saving result to file %c ...',0
+            DW     80h
+D_SAVE_OK   DB    8,8,8,8,', OK !',0dh,0ah,0
+D_SAVE_ERR  DB    8,8,8,8,', error !',0dh,0ah,0
+
+D_TIME      DB    0dh,0ah,'Total %ld points, time used %d:%02d.%03d, '
+            db     'calculate %ld times.',0dh,0ah,0
+            dw     digital,_min,_sec,_sec1,_div
+D_SCAN      DB    '<<PI calculater>> Dec 18, 1996',0dh,0ah
+            DB     'Copyright(C) by Luo Yun Bin, phone 0576-4114689',0dh,0ah,0ah
+            DB     'How many points (10-80000): ',0
+D_ABORT     DB    'User pressed Esc, calculate aborted !%20r ',0dh,0ah,0
+D_CAL       DB    'Calculating, please waiting ... (Esc to cancel)',0dh,0
+D_CAL1      DB    '%d %% calculated, please waiting ... (Esc to cancel)',0dh,0
+            DW     PERCENT
+PERCENT     DW    ?
+D_STR1      DB    ' PI = %1ld.%c',0dh,0ah,0
+            DW     tmp_num0,d_sub_str
+D_STR2      DB    '%5ld : %c'
+            DB     0dh,0ah,0
+            DW     _count,d_sub_str
+D_SUB_STR   DB    '%05ld %05ld %05ld %05ld %05ld '
+            DB     '%05ld %05ld %05ld %05ld %05ld',0
+            DW     tmp_num,tmp_num+4,tmp_num+8,tmp_num+12,tmp_num+16
+            DW     tmp_num+20,tmp_num+24,tmp_num+28,tmp_num+32,tmp_num+36
+
+install:
+        mov    si,offset d_scan
+        call   printf
+        mov    ah,0Ah
+        mov    dx,offset key_buff
+        int    21h
+        mov    si,offset key_buff+2
+        call   scanf
+        mov    eax,dword ptr scan_num
+        mov    digital,eax
+        mov    si,offset d_cal
+        call   printf
+
+        xor    ax,ax
+        mov    ds,ax
+        mov    ax,ds:[046ch]
+        push   cs
+        pop    ds
+        mov    _sec,ax
+
+        mov    ax,cs
+        add    ax,1000h     ;result of 4*4*5/25^n
+        mov    fs,ax
+        add    ax,1000h     ;result of 4*239/57121^n
+        mov    gs,ax
+        add    ax,1000h     ;total result
+        mov    bp,ax
+
+        mov    ax,fs
+        call   init_num
+        mov    dword ptr fs:[4],4*239*100000
+
+        mov    ax,gs
+        call   init_num
+        mov    dword ptr gs:[4],4*4*5*100000
+
+        mov    ax,bp
+        call   init_num
+
+        call   pre
+        call   calc
+
+        xor    ax,ax
+        mov    ds,ax
+        mov    ax,ds:[046ch]
+        push   cs
+        pop    ds
+        mov    _sec1,ax
+        
+        push   point
+        call   num_out
+        pop    point
+        
+        mov    ax,_sec1
+        sub    ax,_sec
+        mov    cx,55
+        mul    cx
+        mov    cx,1000
+        div    cx
+        mov    _sec1,dx
+        mov    cx,60
+        xor    dx,dx
+        div    cx
+        mov    _min,ax
+        mov    _sec,dx
+        mov    si,offset d_time
+        call    printf
+        
+        mov    si,81h
+        mov    di,80h
+cmd_lop:
+        lodsb
+        cmp    al,0dh
+        jz     cmd_end
+        cmp    al,20h
+        jbe    cmd_lop
+        cmp    al,'a'
+        jb     cmd_store
+        cmp    al,'z'
+        ja     cmd_store
+        sub    al,20h
+cmd_store:
+        stosb
+        jmp    short cmd_lop
+cmd_end:
+        xor    al,al
+        stosb
+        
+        mov    si,80h
+        cmp    byte ptr ds:[si],0
+        jz     quit
+        
+        mov     si,offset d_save
+        call    printf
+        
+        mov    ah,3ch
+        xor    cx,cx
+        mov    dx,80h
+        int    21h
+        jb     file_err
+        
+        mov    handle,ax
+        mov    std_out,offset write_file
+        call   num_out
+        
+        mov    std_out,offset prt_to_scr
+        mov    si,offset d_save_ok
+        call   printf
+        
+        mov    ah,3eh
+        mov    bx,handle
+        int    21h
+        int    20h
+file_err:
+        mov    si,offset d_save_err
+        call   printf
+        int    20h
+quit:
+        int    20h
+
+WRITE_FILE     PROC
+
+        pusha
+        mov    ah,40h
+        mov    flag,al
+        mov    bx,handle
+        mov    cx,1
+        mov    dx,offset flag
+        int    21h
+        popa
+        ret
+
+WRITE_FILE    ENDP
+
+PRE        PROC
+
+        mov    eax,digital         ;total 65536*5/4 points
+        cmp    eax,(65536/4-3)*5         ;comp max points
+        jbe    pre_1
+        mov    eax,(65536/4-3)*5
+pre_1:
+        cmp    eax,10             ;comp min points
+        jae    pre_2             ;must > 10 and < 81915
+        mov    eax,10
+pre_2:
+        xor    edx,edx
+        mov    ecx,5
+        div    ecx
+        mov    ebx,eax
+        inc    ebx
+        mov    point,bx         ;point for print control
+
+        mul    ecx
+        mov    digital,eax         ;
+
+        mov    eax,ebx
+        inc    eax
+        mov    ecx,4
+        mul    ecx
+        mov    num_point,ax         ;max used memory
+        
+        ret
+
+PRE        ENDP
+
+
+CALC        PROC
+
+        mov    es,bp
+c_lop0:        
+        mov    ah,1
+        int    16h
+        jz     calc_0
+        xor    ah,ah
+        int    16h
+        cmp    al,1bh
+        jnz    calc_00
+        push   cs
+        pop    es
+        mov    si,offset d_abort
+        call   printf
+        int    20h
+calc_00:
+        xor    eax,eax
+        mov    ax,_gs_point
+        mov    ecx,500
+        mul    ecx
+        mov    ecx,4
+        div    ecx
+        xor    edx,edx
+        div    digital
+        mov    percent,ax
+        mov    si,offset d_cal1
+        push   cs
+        pop    es
+        call   printf
+        mov    es,bp
+calc_0:
+        xor    eax,eax
+        mov    ecx,100000
+        mov    _a,eax
+        mov    _b,eax
+        xor    flag,00000001b         ;init part
+;============================================================
+        mov    ebx,57121
+c_lop1:
+        mov    si,_fs_point         ;if 4*5/25^n = 0 skip
+        cmp    si,num_point
+        jae    calc_1
+        cmp    dword ptr fs:[si],0
+        jnz    c_lop2
+        add    _fs_point,4
+        jmp    short c_lop1
+c_lop2:
+        mul    ecx
+        add    eax,fs:[si]
+        adc    edx,0
+        div    ebx
+        mov    fs:[si],eax
+        mov    eax,edx
+
+        add    si,4
+        cmp    si,num_point
+        jb     c_lop2
+;=======================================================
+calc_1:
+        mov    ebx,25
+c_lop3:
+        mov    si,_gs_point         ;if 4*5/25^n = 0 skip
+        cmp    si,num_point
+        jae    calc_4
+        cmp    dword ptr gs:[si],0
+        jnz    c_lop4
+        add    _gs_point,4
+        jmp    short c_lop3
+c_lop4:
+        mov    eax,_a
+        mul    ecx
+        add    eax,gs:[si]
+        adc    edx,0
+        div    ebx
+        mov    gs:[si],eax
+        mov    _a,edx
+        
+        mov    eax,_b
+        mul    ecx
+        add    eax,gs:[si]
+        adc    edx,0
+        sub    eax,fs:[si]
+        sbb    edx,0
+        
+        cmp    edx,0
+        jl     _t1
+        div    _div
+        mov    _b,edx
+        jmp    short _t2
+_t1:
+        idiv   _div
+        dec    eax
+        add    edx,_div
+        mov    _b,edx
+_t2:
+        test   flag,00000001b
+        jnz    calc_2
+        sub    es:[si],eax
+        jmp    short calc_3
+calc_2:
+        add    es:[si],eax
+calc_3:
+        add    si,4
+        cmp    si,num_point
+        jb     c_lop4
+c_lop5:        
+        add    _div,2
+        jmp    c_lop0
+;====================================================
+calc_4:
+        xor    eax,eax
+        mov    _a,eax
+        mov    si,num_point
+c_lop6:
+        sub    si,4
+        mov    eax,es:[si]
+        add    eax,_a
+
+        cmp    eax,ecx
+        jge    calc_5
+        cmp    eax,0
+        jle    calc_6
+        mov    _a,0
+        mov    es:[si],eax
+        jmp    short calc_8
+calc_5:
+        xor    edx,edx
+        div    ecx
+        mov    es:[si],edx
+        mov    _a,eax
+        jmp    short calc_8
+calc_6:
+        mov    edx,-1
+        idiv   ecx
+        dec    eax
+        add    edx,ecx
+        mov    es:[si],edx
+        mov    _a,eax
+calc_8:
+        cmp    si,4
+        ja     c_lop6
+
+        mov    eax,_a
+        mov    es:[0],eax
+                
+        push   cs
+        pop    es
+        ret
+
+CALC        ENDP
+
+INIT_NUM    PROC
+
+        push   es
+        mov    es,ax
+        xor    eax,eax
+        cld
+        xor    di,di
+        mov    cx,65536/4
+        cld
+        rep    stosd
+        pop    es
+        ret
+
+INIT_NUM    ENDP
+
+NUM_OUT        PROC
+
+        cld
+        xor    esi,esi
+        mov    _count,esi
+        mov    di,offset tmp_num0
+        mov    cx,11
+        cmp    cx,point
+        jbe    no_adjust
+        mov    cx,point
+no_adjust:
+        sub    point,cx
+        mov    ds,bp
+        rep    movsd
+        push   cs
+        pop    ds
+
+        push   si
+        mov    si,offset d_str1
+        call   printf
+        pop    si
+no_lop:
+        cmp    point,0
+        jle    no_quit
+        mov    cx,10
+        mov    di,offset tmp_num
+        xor    eax,eax
+        rep    stosd
+
+        mov    cx,10
+        mov    di,offset tmp_num
+        cmp    point,10
+        jae    no1
+        mov    cx,point
+no1:
+        sub    point,cx
+        add    _count,50
+        mov    ds,bp         ;bp = result segment
+        rep    movsd
+        push   cs
+        pop    ds
+
+        push   si
+        mov    si,offset d_str2
+        call   printf
+        pop    si
+        jmp    short no_lop
+no_quit:
+        ret
+
+NUM_OUT        ENDP
+
+INCLUDE        SCANF.ASM
+INCLUDE        PRINTF.ASM
+
+CODE    ENDS
+        END    START
+
+ 
+ 

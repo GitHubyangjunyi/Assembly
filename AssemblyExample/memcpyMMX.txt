@@ -1,0 +1,84 @@
+memcpyMMX proc dest,src,nCopySize
+pushfd
+pushad
+mov ecx,nCopySize
+mov ebx,ecx
+and ebx,03fh
+shr ecx,6
+mov edi,dest
+mov esi,src
+cmp edi,esi
+jz mmM2
+jb mmM3
+;if the memory block is to be moved forward,we start at the end of the block.
+;if the memory block is to be moved backward,we start at the head of the block.
+mov eax,nCopySize
+lea esi,[esi+eax]
+lea edi,[edi+eax]
+mmM4:
+or ecx,ecx
+jz mmM5
+mmM6:
+movq MM0,[esi-8]
+movq MM1,[esi-10h]
+movq MM2,[esi-18h]
+movq MM3,[esi-20h]
+movq MM4,[esi-28h]
+movq MM5,[esi-30h]
+movq MM6,[esi-38h]
+movq MM7,[esi-40h]
+movq [edi-40h],MM7
+movq [edi-38h],MM6
+movq [edi-30h],MM5
+movq [edi-28h],MM4
+movq [edi-20h],MM3
+movq [edi-18h],MM2
+movq [edi-10h],MM1
+movq [edi-8],MM0
+sub esi,40h
+sub edi,40h
+loop mmM6
+mmM5:
+mov ecx,ebx
+or ecx,ecx
+jz mmM2
+std
+dec esi
+dec edi
+rep movsb
+jmp mmM2
+mmM3:
+or ecx,ecx
+jz mmM1
+mmM:
+movq MM0,[esi]
+movq MM1,[esi+8]
+movq MM2,[esi+16]
+movq MM3,[esi+24]
+movq MM4,[esi+32]
+movq MM5,[esi+40]
+movq MM6,[esi+48]
+movq MM7,[esi+56]
+movq [edi+56],MM7
+movq [edi+48],MM6
+movq [edi+40],MM5
+movq [edi+32],MM4
+movq [edi+24],MM3
+movq [edi+16],MM2
+movq [edi+8],MM1
+movq [edi],MM0
+add esi,64
+add edi,64
+loop mmM
+mmM1:
+mov ecx,ebx
+or ecx,ecx
+jz mmM2
+cld
+rep movsb
+mmM2:
+emms
+popad
+popfd
+ret
+memcpyMMX endp

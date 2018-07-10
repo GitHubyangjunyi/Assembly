@@ -1,0 +1,35 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "FindMaxNum",
+            "type": "shell",
+            "command": "as ${workspaceFolder}/Linux/FindMaxNum.s -g -o ${workspaceFolder}/Linux/AssemblyOut/FindMaxNum.out;ld ${workspaceFolder}/Linux/AssemblyOut/FindMaxNum.out -g -o ${workspaceFolder}/Linux/ExecutableFile/FindMaxNum;${workspaceFolder}/Linux/ExecutableFile/FindMaxNum;echo $?",
+            "problemMatcher": []
+        },
+        {
+            "label": "FirstDemo",
+            "type": "shell",
+            "command": "as ${workspaceFolder}/Linux/FirstDemo.s -g -o ${workspaceFolder}/Linux/AssemblyOut/FirstDemo.out;ld ${workspaceFolder}/Linux/AssemblyOut/FirstDemo.out -g -o ${workspaceFolder}/Linux/ExecutableFile/FirstDemo;${workspaceFolder}/Linux/ExecutableFile/FirstDemo;echo $?",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "FunctionStack",
+            "type": "shell",
+            "command": "as ${workspaceFolder}/Linux/FunctionStack.s -g -o ${workspaceFolder}/Linux/AssemblyOut/FunctionStack.out;ld ${workspaceFolder}/Linux/AssemblyOut/FunctionStack.out -g -o ${workspaceFolder}/Linux/ExecutableFile/FunctionStack;${workspaceFolder}/Linux/ExecutableFile/FunctionStack;echo $?",
+            "problemMatcher": []
+        },
+        {
+            "label": "Templet",
+            "type": "shell",
+            "command": "as ${workspaceFolder}/AssemblyLanguage/Templet.s -g -o ${workspaceFolder}/AssemblyLanguage/AssemblyOut/Templet.out;ld ${workspaceFolder}/AssemblyLanguage/AssemblyOut/Templet.out -g -o ${workspaceFolder}/AssemblyLanguage/ExecutableFile/Templet;${workspaceFolder}/AssemblyLanguage/ExecutableFile/Templet;echo $?",
+            "problemMatcher": []
+        },
+    ]
+}

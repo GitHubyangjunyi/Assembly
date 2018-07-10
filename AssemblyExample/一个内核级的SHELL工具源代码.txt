@@ -1,0 +1,798 @@
+一个内核级的SHELL工具源代码
+
+驱动部分
+;@echo off
+;goto make
+
+;********************************************************************
+;author  :dge
+;homepage:http://llfdge.googlepages.com/
+;date    :2007.3.16
+;********************************************************************
+
+.386
+.model flat, stdcall
+option casemap:none
+
+include                d:\masm32\include\w2k\ntstatus.inc
+include                d:\masm32\include\w2k\ntddk.inc
+include                d:\masm32\include\w2k\ntoskrnl.inc
+includelib        d:\masm32\lib\w2k\ntoskrnl.lib
+include                d:\masm32\Macros\Strings.mac
+include                common.inc
+
+_DispatchCreateClose proto :PDEVICE_OBJECT,:PIRP
+_DriverUnload proto :PDRIVER_OBJECT
+_DispatchControl proto :PDEVICE_OBJECT,:PIRP
+
+.const
+CCOUNTED_UNICODE_STRING        "\\Device\\devFHF", g_usDeviceName, 4
+CCOUNTED_UNICODE_STRING        "\\??\\slFHF", g_usSymbolicLinkName, 4
+
+.data
+szDos        db        '\DosDevices\',0
+
+.code
+
+_SetEventComp   proc uses esi edi,pDeviceObject:PDEVICE_OBJECT,pIrp:PIRP,event
+        mov        esi,pIrp
+        assume        esi : ptr _IRP
+        push    [esi].IoStatus.Status
+        mov     edi,[esi].UserIosb
+        assume  edi : ptr IO_STATUS_BLOCK
+        pop     [edi].Status
+
+        push    [esi].IoStatus.Information
+        pop     [edi].Information
+
+        invoke  KeSetEvent,[esi].UserEvent,0,FALSE
+        assume  esi:nothing
+        assume  edi:nothing
+    
+        invoke  IoFreeIrp,pIrp
+
+        mov eax,STATUS_MORE_PROCESSING_REQUIRED
+        ret
+_SetEventComp    endp
+
+
+DriverEntry proc uses esi, pDriverObject:PDRIVER_OBJECT, pusRegistryPath:PUNICODE_STRING
+        local        status : NTSTATUS
+        local        pDeviceObject : PDEVICE_OBJECT
+
+;        int        3
+        invoke        DbgPrint, $CTA0("Entry DriverEntry  \n")
+        mov        status, STATUS_DEVICE_CONFIGURATION_ERROR
+        
+        invoke        IoCreateDevice, pDriverObject,NULL, addr g_usDeviceName,\
+                FILE_DEVICE_UNKNOWN, 0, FALSE, addr pDeviceObject
+        .if        eax==STATUS_SUCCESS
+                mov        esi, pDeviceObject
+                assume        esi : ptr DEVICE_OBJECT
+                
+                invoke        IoCreateSymbolicLink,addr g_usSymbolicLinkName, addr g_usDeviceName
+                .if        eax==STATUS_SUCCESS
+                        mov        eax, pDriverObject
+                        assume        eax:ptr DRIVER_OBJECT
+                        mov        [eax].DriverUnload,                                           offset _DriverUnload
+                        mov        [eax].MajorFunction[IRP_MJ_CREATE*(sizeof PVOID)],           offset _DispatchCreateClose
+                        mov        [eax].MajorFunction[IRP_MJ_CLOSE*(sizeof PVOID)],           offset _DispatchCreateClose
+                        mov        [eax].MajorFunction[IRP_MJ_DEVICE_CONTROL*(sizeof PVOID)], offset _DispatchControl
+                        assume        eax:nothing
+                        
+                        mov        status, STATUS_SUCCESS
+                .else
+                        invoke        IoDeleteDevice, pDeviceObject
+                .endif
+        .endif
+
+        mov eax, status
+        ret
+DriverEntry endp
+           
+_DispatchControl proc uses esi edi ebx,pDeviceObject:PDEVICE_OBJECT, pIrp:PIRP
+        local        status : NTSTATUS
+        local        dwBytesReturned
+        local   oa : OBJECT_ATTRIBUTES 
+        local   lpDeviceObject : PDEVICE_OBJECT 
+        local   event : KEVENT        
+        local   ioStatus : IO_STACK_LOCATION
+        local   ioS : IO_STATUS_BLOCK   
+        local   lpIrp : PIRP
+        local   hFile 
+        local   lpSystemBuffer
+        local   lpInformation:PFILE_DIRECTORY_INFORMATION
+        local   lpFileobject : PFILE_OBJECT
+        local   uFileName : UNICODE_STRING
+        local   UN:UNICODE_STRING
+        local   aFileName : ANSI_STRING                        
+        local   Buffer[1024]:byte        
+
+        and        dwBytesReturned,0
+        mov        status, STATUS_UNSUCCESSFUL
+        mov        esi, pIrp
+        assume        esi : ptr _IRP
+        
+        IoGetCurrentIrpStackLocation esi
+        mov        edi,eax
+        assume        edi : ptr IO_STACK_LOCATION        
+        mov        eax,[edi].Parameters.DeviceIoControl.IoControlCode        
+        .if     eax == IOCTL_GET_DIRECTORY_INFO
+                ;int 3
+                push        [esi].AssociatedIrp.SystemBuffer
+                pop     esi
+                mov     lpSystemBuffer,esi
+          
+                assume        esi:nothing
+                assume        edi:nothing
+
+                invoke  strcpy,addr Buffer,addr szDos
+                invoke  strcat,addr Buffer,lpSystemBuffer
+                invoke        RtlInitAnsiString,addr aFileName,addr Buffer
+                invoke        RtlAnsiStringToUnicodeString,addr uFileName,addr aFileName,TRUE
+
+                InitializeObjectAttributes addr oa, addr uFileName,OBJ_CASE_INSENSITIVE + OBJ_KERNEL_HANDLE,\
+                                           NULL, NULL
+                ;打开目录
+                invoke        ZwOpenFile,addr hFile, FILE_LIST_DIRECTORY + SYNCHRONIZE+FILE_ANY_ACCESS, addr oa,\
+                                   addr ioS, FILE_SHARE_READ + FILE_SHARE_WRITE + FILE_SHARE_DELETE,\
+                                   FILE_DIRECTORY_FILE + FILE_SYNCHRONOUS_IO_NONALERT                     
+                .if        eax==STATUS_SUCCESS
+                        invoke        DbgPrint, $CTA0("ZwOpenFile  SUCCESS\n"),eax                        
+                .endif        
+                invoke RtlFreeUnicodeString,addr uFileName
+                ;获得句柄的文件对象
+                invoke        ObReferenceObjectByHandle,hFile,FILE_LIST_DIRECTORY + SYNCHRONIZE,\
+                        0,KernelMode,addr lpFileobject,NULL
+                .if     eax==STATUS_SUCCESS                      
+                        invoke        DbgPrint, $CTA0("file obj success\n")
+                        ;获得文件系统的底层设备对象
+                        mov        esi,lpFileobject
+                        assume        esi:ptr FILE_OBJECT
+                          
+                        push        [esi].Vpb
+                        pop        edi
+                        assume        edi:ptr VPB
+                        .if     [esi].Vpb & edi
+                                push        [edi].DeviceObject
+                                pop        lpDeviceObject
+                        .endif
+                        assume        esi:nothing
+                        assume  edi:nothing
+                        mov     esi,lpDeviceObject
+                        assume  esi:ptr DEVICE_OBJECT  
+                 
+                        invoke  IoAllocateIrp,[esi].StackSize,FALSE
+                        .if     eax !=NULL
+                                mov        lpIrp,eax
+                        .else   ;减少引用记数
+                                invoke        DbgPrint, $CTA0("allocate failed  \n")
+                                invoke  ObDereferenceObject,lpFileobject
+                                invoke  ZwClose,hFile
+                                jmp        exit
+                        .endif
+
+                        ;int 3
+                        invoke        DbgPrint, $CTA0("allocate Irp  success \n")
+                        invoke  KeInitializeEvent,addr event,SynchronizationEvent,FALSE
+                        assume  esi:nothing
+                        mov     esi,lpIrp
+                        assume        esi : ptr _IRP
+
+                        ;填充IRP结构                       
+                        invoke  ExAllocatePool,PagedPool,65535
+                        push        eax
+                        invoke  memset,eax,0,65535
+                        pop        eax
+                        mov        lpInformation,eax
+                        mov     [esi].UserBuffer,eax
+                        mov        [esi].MdlAddress,NULL
+                        mov     [esi].AssociatedIrp.SystemBuffer,eax
+                        mov        [esi].Flags,0
+                        lea     eax, event
+                        mov     [esi].UserEvent,eax
+                        lea        eax,ioStatus
+                        mov     [esi].UserIosb,eax
+                        push    lpFileobject
+                        pop     [esi].Tail.Overlay.OriginalFileObject
+                        invoke  PsGetCurrentThread
+                        mov     [esi].Tail.Overlay.Thread,eax
+                        mov     [esi].RequestorMode,KernelMode
+                        assume  esi:nothing
+                         
+                        IoGetNextIrpStackLocation lpIrp
+                        mov     esi,eax
+                        assume  esi:ptr IO_STACK_LOCATION
+
+                        mov     [esi].MajorFunction,IRP_MJ_DIRECTORY_CONTROL
+                        mov     [esi].MinorFunction,IRP_MN_QUERY_DIRECTORY
+                        push    lpFileobject
+                        pop     [esi].FileObject
+                        push    lpDeviceObject
+                        pop     [esi].DeviceObject
+                        mov     [esi].Flags,SL_RESTART_SCAN 
+                        mov        [esi].Control,0
+                        mov     [esi].Parameters.QueryDirectory.FileIndex,0
+                        mov     [esi].Parameters.QueryDirectory.FileInformationClass,FileDirectoryInformation                         
+                       
+                        mov     [esi].Parameters.QueryDirectory.FileName,NULL
+                        mov     [esi].Parameters.QueryDirectory._Length,65535
+                       
+                        assume  esi:nothing
+                       
+                        IoSetCompletionRoutine lpIrp,addr _SetEventComp,0,TRUE,TRUE,TRUE
+
+                        invoke  IoCallDriver,lpDeviceObject,lpIrp
+                        invoke        DbgPrint, $CTA0("status %x"),eax
+                        invoke  KeWaitForSingleObject,addr event,Executive,KernelMode,TRUE,0
+
+                        mov        esi,lpInformation                       
+                        assume  esi:ptr FILE_DIRECTORY_INFORMATION
+
+                        mov        edi,lpSystemBuffer
+                        assume        edi:ptr DIRECTORY_INFO
+                        .while  TRUE
+                                mov     eax,[esi].FileNameLength        
+                                mov     UN._Length,ax
+                                mov     UN.MaximumLength,ax
+                                lea        ecx,[esi].FileName
+                                mov     UN.Buffer,ecx                                
+                                invoke  RtlUnicodeStringToAnsiString, addr aFileName, addr UN,TRUE                                 
+                                invoke        strcpy,addr [edi].FileName,aFileName.Buffer
+                                invoke        RtlFreeAnsiString,addr aFileName
+                                push    dword ptr[esi].CreationTime
+                                pop        dword ptr[edi].CreationTime
+                                push    dword ptr[esi].CreationTime+4
+                                pop        dword ptr[edi].CreationTime+4
+                        
+                                push        dword ptr[esi].EndOfFile
+                                pop        dword ptr[edi].EndOfFile
+
+                                push        [esi].FileAttributes
+                                pop        [edi].FileAttributes
+                        
+                                add     dwBytesReturned,sizeof DIRECTORY_INFO                        
+                                add     edi,sizeof DIRECTORY_INFO
+                                 
+                                .if     ![esi].NextEntryOffset
+                                        .break
+                                .endif
+                                add        esi,[esi].NextEntryOffset                                                        
+                        .endw        
+                        assume  esi:nothing
+                        invoke  ExFreePool,lpInformation
+                        invoke  ObDereferenceObject,lpFileobject
+                        invoke  ZwClose,hFile
+                        mov     status,STATUS_SUCCESS                     
+                .else   
+                        invoke        DbgPrint, $CTA0("file obj failed  \n")
+                        jmp        exit
+                .endif 
+        .endif
+exit:        mov     esi,pIrp
+        assume        esi : ptr _IRP
+        push        status
+        pop     [esi].IoStatus.Status        
+        push        dwBytesReturned
+        pop        [esi].IoStatus.Information
+
+        assume        esi : nothing
+        assume        edi : nothing
+
+        invoke        IoCompleteRequest, pIrp, IO_NO_INCREMENT
+        mov     eax, status
+        ret
+_DispatchControl endp
+
+_DispatchCreateClose proc pDeviceObject:PDEVICE_OBJECT, pIrp:PIRP
+        mov        eax, pIrp
+        assume        eax:ptr _IRP
+        mov        [eax].IoStatus.Status, STATUS_SUCCESS
+        and        [eax].IoStatus.Information, 0
+        assume        eax:nothing
+        invoke        IoCompleteRequest, pIrp, IO_NO_INCREMENT
+        ret
+_DispatchCreateClose endp
+
+_DriverUnload proc pDriverObject:PDRIVER_OBJECT
+        invoke        DbgPrint, $CTA0("Unload success\n")
+        invoke        IoDeleteSymbolicLink, addr g_usSymbolicLinkName
+        mov        eax, pDriverObject
+        invoke        IoDeleteDevice, (DRIVER_OBJECT PTR [eax]).DeviceObject
+        ret
+_DriverUnload endp
+
+end DriverEntry
+
+:make
+set path=%path%;d:\masm32\bin;
+set drv=FHF
+
+ml /nologo /c /coff %drv%.bat
+link /nologo /driver /base:0x10000 /align:32 /out:%drv%.sys /subsystem:native %drv%.obj
+del %drv%.obj
+echo.
+pause
+
+用户部分:
+;********************************************************************
+;author  :dge
+;homepage:http://llfdge.googlepages.com/
+;date    :2007.3.16
+;********************************************************************
+
+.386
+.model flat, stdcall
+option casemap :none
+
+include                d:\masm32\include\windows.inc
+include                d:\masm32\include\kernel32.inc
+includelib        d:\masm32\lib\kernel32.lib
+include                d:\masm32\include\user32.inc
+includelib        d:\masm32\lib\user32.lib
+include                d:\masm32\include\winioctl.inc
+include                d:\masm32\include\advapi32.inc
+includelib        d:\masm32\lib\advapi32.lib
+include                d:\masm32\Macros\Strings.mac
+include         common.inc
+
+.data?
+szHostName        db        100 dup (?)
+szBuffer        db        100 dup (?)
+hInstance       dd        ?
+;********************************************************************
+; 标志及命令行参数
+;********************************************************************
+dwOption        dd        ?
+F_ABORT                equ        0001h                ;按了 Ctrl-C 终止
+
+.data
+szVer            db        'FHF  [版本 1.0]',0dh,0ah
+                db        '<C> 版权所有  2007  dge',0dh,0ah
+                db        'http://llfdge.googlepages.com',0dh,0ah,0        
+szDir           db      'dir',0dh,0ah,0
+szExit          db      'exit',0dh,0ah,0
+szCdB           db      'cd..',0dh,0ah,0
+szCdC           db        'cd ..',0dh,0ah,0
+szCdA           db      'cd ',0
+szRoot          db      ':',0dh,0ah,0
+szCaption       db        'FHF V1.0',0
+szGet           db      100 dup(?)
+szError         db      '不支持此命令',0dh,0ah,0    
+last            db      '>',0
+odoa            db      0dh,0ah,0
+szFilter        db        '*.*',0
+szOutputA       db        '%04d-%02d-%02d  %02d:%02d     %s      %-8d     %-s',0dh,0ah,0
+szOutputB       db        '%04d-%02d-%02d  %02d:%02d             %-8d     %-s',0dh,0ah,0
+szIr            db        '<DIR>',0
+szOutput        db      1024 dup(?)
+szFail          db        '系统找不到指定路径',0dh,0ah,0
+FLAG                db      0
+adwOutBuffer    db      65535 dup(?)
+hDevice         dd        ?
+inBuffer        db        100 dup(?)    
+dwBytesReturned dd        ?
+count           dd        ?
+f               db      '%s %s',0
+.code
+
+include                _Console.asm
+
+_LoadDriver        proc        uses esi edi
+                local        hSCManager
+                local        hService
+                local        acModulePath[MAX_PATH]:CHAR
+                local        _ss:SERVICE_STATUS
+                local        acBuffer[256+64]:CHAR
+                local        acNumber[32]:CHAR
+                local        szWide[100]:byte        
+                
+                invoke        CreateFile,$CTA0("\\\\.\\slFHF"), GENERIC_READ + GENERIC_WRITE, \
+                                  0, NULL, OPEN_EXISTING, 0, NULL
+                .if        eax != INVALID_HANDLE_VALUE
+                         mov        hDevice,eax                
+                         mov        eax,TRUE
+                         ret
+                .endif               
+                invoke        OpenSCManager, NULL, NULL, SC_MANAGER_ALL_ACCESS
+                .if        eax != NULL
+                        mov        hSCManager, eax
+                        push        eax
+                        invoke        GetFullPathName, $CTA0("FHF.sys"), sizeof acModulePath, addr acModulePath, esp
+                            pop        eax
+                        invoke  CreateService, hSCManager, $CTA0("FHF"), $CTA0("FHF"),\
+                                SERVICE_START + SERVICE_STOP + DELETE, SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START, \
+                                SERVICE_ERROR_IGNORE, addr acModulePath, NULL, NULL, NULL, NULL, NULL
+                                .if     eax != NULL
+                                        mov        hService, eax
+                                        invoke        StartService, hService, 0, NULL
+                                        .if        eax != 0
+                                                invoke        CreateFile,$CTA0("\\\\.\\slFHF"), GENERIC_READ + GENERIC_WRITE, \
+                                                                   0, NULL, OPEN_EXISTING, 0, NULL
+                                                .if     eax != INVALID_HANDLE_VALUE
+                                                        mov        hDevice, eax
+                                                        invoke        CloseServiceHandle, hService
+                                                        mov        eax,TRUE
+                                                        ret                
+                                                .endif                        
+                                                        invoke        ControlService, hService, SERVICE_CONTROL_STOP, addr _ss                                
+                                        .endif
+                                        invoke         DeleteService, hService
+                                        invoke         CloseServiceHandle, hService
+                                .endif
+                                invoke        CloseServiceHandle, hSCManager
+                .endif
+        mov        eax,FALSE
+        ret 
+_LoadDriver        endp
+
+_CloseDevice        proc uses ebx esi edi
+                LOCAL        hSCManager
+                LOCAL        hService
+                LOCAL        sest : SERVICE_STATUS
+                
+                .if        hDevice
+                        invoke        CloseHandle, hDevice
+                .endif
+        
+                invoke        OpenSCManager, NULL, NULL, SC_MANAGER_CONNECT
+                .if        eax!=0
+                        mov        hSCManager, eax
+                
+                        invoke        OpenService, hSCManager, $CTA0("FHF"), SERVICE_STOP+DELETE
+                        .if        eax!=0
+                                mov        hService, eax
+                                invoke        ControlService, hService, SERVICE_CONTROL_STOP, addr sest
+                                invoke        DeleteService, hService
+                                invoke        CloseServiceHandle, hService
+                        .endif
+                        invoke        CloseServiceHandle, hSCManager
+                .endif
+              
+                ret
+_CloseDevice endp
+    
+_PrintFileInfo        proc
+                local        sysTime :SYSTEMTIME
+                local        stFindFile:WIN32_FIND_DATA
+                local        hFindFile
+                local   lpName
+                local   EnFilea
+                local   EnFileb
+                pushad
+                lea        esi,adwOutBuffer
+                assume        esi:ptr DIRECTORY_INFO
+                
+                mov        ecx,count                  
+         @@:    push        ecx
+                .if        [esi].FileAttributes & FILE_ATTRIBUTE_DIRECTORY 
+                        .if        [esi].Flag == TRUE
+                                invoke  SetConsoleTextAttribute,hStdOut,FOREGROUND_RED+FOREGROUND_INTENSITY
+                        .endif 
+                        invoke  FileTimeToSystemTime,addr [esi].CreationTime,addr sysTime        
+                        push        esi
+                        lea     esi,[esi].FileName
+                        mov        lpName,esi
+                        push    dword ptr[esi].EndOfFile
+                        pop     EnFilea
+                        push    dword ptr[esi].EndOfFile+4
+                        pop        EnFileb
+                        movzx        esi,sysTime.wYear
+                        movzx        edi,sysTime.wMonth
+                        movzx        ebx,sysTime.wDay
+                        movzx        ecx,sysTime.wHour
+                        movzx        edx,sysTime.wMinute
+                        invoke        wsprintf,addr szOutput,addr szOutputA,esi,edi,ebx,ecx,\
+                                         edx,addr szIr,EnFilea,lpName
+
+                        invoke  _ConsolePrint,addr szOutput
+
+                        pop        esi
+                .else
+                        .if        [esi].Flag == TRUE
+                                invoke  SetConsoleTextAttribute,hStdOut,FOREGROUND_RED+FOREGROUND_INTENSITY
+                        .endif 
+
+                        invoke  FileTimeToSystemTime,addr [esi].CreationTime,addr sysTime
+                        push        esi
+                        lea     esi,[esi].FileName
+                        mov        lpName,esi
+                        push    dword ptr[esi].EndOfFile
+                        pop     EnFilea
+                        push    dword ptr[esi].EndOfFile+4
+                        pop        EnFileb
+                        movzx        esi,sysTime.wYear
+                        movzx        edi,sysTime.wMonth
+                        movzx        ebx,sysTime.wDay
+                        movzx        ecx,sysTime.wHour
+                        movzx        edx,sysTime.wMinute
+                        
+                        invoke  wsprintf,addr szOutput,addr szOutputB,esi,edi,ebx,ecx,edx,EnFilea,\ 
+                                         lpName
+                        
+                        invoke  _ConsolePrint,addr szOutput
+
+                        pop        esi
+                .endif
+                invoke  SetConsoleTextAttribute,hStdOut,FOREGROUND_GREEN
+                add        esi,sizeof DIRECTORY_INFO
+                pop        ecx
+                dec        ecx
+                .if        ecx
+                        jmp @B
+                .endif
+                                
+                 ret
+_PrintFileInfo         endp                                
+                   
+_SubPath        proc 
+                lea        edi,szBuffer
+                mov     al,'>'
+                mov     cx,100D
+                repne   scasb
+                dec        edi                
+          @@:        dec     edi
+                 cmp     byte ptr[edi],'\'
+                jne     @B
+                cmp     byte ptr[edi-1],':'
+                jne     @F  
+                inc        edi
+          @@:   mov     byte ptr[edi],'>'
+                inc     edi
+                mov     byte ptr[edi],0
+                ret
+_SubPath        endp
+
+_AddPath        proc    lpSz
+
+                pushad
+                lea        edi,szBuffer
+                mov     al,'>'
+                mov     cx,100D
+                repne   scasb
+                dec        edi
+                .if        byte ptr[edi-1]=='\'
+                        mov        byte ptr[edi],0
+                .else
+                        mov        byte ptr[edi],'\'
+                        inc        edi
+                        mov        byte ptr[edi],0
+                .endif        
+                mov        esi,lpSz
+                invoke  lstrlen,esi
+                add        esi,eax
+                mov        word ptr[esi-2],0
+                invoke        lstrcat,addr szBuffer,lpSz
+                invoke  lstrcat,addr szBuffer,addr last
+
+                popad
+                ret
+_AddPath        endp
+
+_Init           proc
+                pushad
+
+                lea        esi,adwOutBuffer
+                assume        esi:ptr DIRECTORY_INFO
+                xor        edx,edx
+                mov        eax,dwBytesReturned
+                mov        ecx,sizeof DIRECTORY_INFO
+                div        ecx
+                mov        count,eax
+                mov        ecx,eax
+        @@:        mov        [esi].Flag,TRUE
+                push        ecx                           
+                add        esi,sizeof DIRECTORY_INFO
+                pop        ecx
+                loop        @B
+                popad
+                ret 
+_Init                endp
+
+_SetFlag        proc  lpName
+     
+                pushad
+                lea        esi,adwOutBuffer
+                assume        esi:ptr DIRECTORY_INFO
+                mov        ecx,count
+        @@:     push        ecx
+                invoke  lstrcmp,addr [esi].FileName,lpName
+                .if        !eax
+                        mov        [esi].Flag,FALSE        
+                .endif
+                pop        ecx
+                add        esi,sizeof DIRECTORY_INFO
+                loop        @B
+
+                assume        esi:nothing
+                popad
+                ret
+_SetFlag       endp 
+
+_FindHideFile   proc
+                local        stFindFile:WIN32_FIND_DATA
+                local        hFindFile
+                local        @szSearch[MAX_PATH]:byte        
+                local        sysTime :SYSTEMTIME
+
+                pushad
+                invoke        lstrcpy,addr @szSearch,addr szBuffer
+                invoke        lstrlen,addr @szSearch
+                lea     esi,@szSearch
+                add     esi,eax
+                xor        eax,eax
+                dec        esi
+                mov        byte ptr[esi],'\'
+                mov     byte ptr[esi+1],'*'
+                mov        byte ptr[esi+2],'.'
+                mov        byte ptr[esi+3],'*'
+                mov     byte ptr[esi+4],0
+                invoke        FindFirstFile,addr @szSearch,addr stFindFile
+                .if        eax !=        INVALID_HANDLE_VALUE
+                        mov        hFindFile,eax
+                        .repeat
+                                invoke        _SetFlag,addr stFindFile.cFileName
+                                invoke        FindNextFile,hFindFile,addr stFindFile
+                        .until        (eax ==        FALSE)
+                        invoke        FindClose,hFindFile        
+                .endif
+                popad
+
+                ret
+_FindHideFile        endp
+
+start:
+                call        _ConsoleInit
+                invoke  SetConsoleTextAttribute,hStdOut,FOREGROUND_BLUE+FOREGROUND_INTENSITY
+                invoke  _ConsolePrint,addr szVer  
+                invoke  GetCurrentDirectory,1024,addr szBuffer
+                invoke        lstrcat,addr szBuffer,addr last
+                invoke        SetConsoleTitle,addr szCaption
+                invoke  SetConsoleTextAttribute,hStdOut,FOREGROUND_GREEN
+           @@:  invoke  _ConsolePrint,addr szBuffer
+                invoke        RtlZeroMemory,addr szGet,sizeof szGet
+                invoke  _ConsoleRead,addr szGet
+                lea     esi,szGet
+                
+                invoke        lstrcmp,esi,addr szExit
+                .if        !eax
+                        invoke        _CloseDevice
+                        invoke  ExitProcess,NULL
+                .endif 
+                invoke        lstrcmp,esi,addr szCdB
+                .if        !eax
+                  p2:   or        FLAG,1
+                        lea        esi,szBuffer
+                        inc     esi
+                        inc        esi
+                        cmp     byte ptr[esi],'>'
+                        je      ll
+                        invoke        _SubPath
+                        invoke  _ConsolePrint,addr odoa
+                ll:        jmp         @B 
+                .endif
+
+                invoke        lstrcmp,esi,addr szCdC
+                .if        !eax
+                        jmp        p2
+                .endif
+               
+                movzx        eax,byte ptr[esi]
+               .if      eax ==  'c'                     
+                        inc        esi
+                        movzx        eax,byte ptr[esi]
+                        .if        eax == 'd'
+                                
+                                inc        esi
+                                movzx        eax,byte ptr[esi]
+                                .if     eax == ' '                                       
+                                        inc        esi
+                                        
+                                        cmp     byte ptr[esi],0dh
+                                        jz      L
+                                        invoke  _AddPath,esi
+                                         
+                                 L:        invoke  _ConsolePrint,addr odoa
+                                        jmp     @B                                
+                                .else 
+                                        invoke  _ConsolePrint,addr odoa
+                                        jmp     @B
+                                .endif
+                        .else
+                         dec        esi
+                        .endif                         
+                .endif
+              
+                invoke        lstrcmp,esi,addr szDir
+                .if        !eax
+                     
+                L1:     invoke        _LoadDriver
+                        .if        !eax
+                                invoke _CloseDevice
+                                jmp        L1
+                        .endif
+                            
+                        invoke        lstrcpy,addr inBuffer,addr szBuffer
+                        invoke        lstrlen,addr inBuffer
+                          lea     esi,inBuffer
+                        add     esi,eax
+                        dec        esi
+                        mov        byte ptr[esi],'\'
+                        invoke  RtlZeroMemory,addr adwOutBuffer,sizeof adwOutBuffer
+                        invoke        DeviceIoControl,hDevice, IOCTL_GET_DIRECTORY_INFO, addr inBuffer,sizeof inBuffer, \
+                                                addr adwOutBuffer, sizeof adwOutBuffer, addr dwBytesReturned, NULL
+                        .if        ( eax != 0 ) && ( dwBytesReturned != 0 )
+                                invoke  _Init
+                                invoke        _FindHideFile                                
+                                invoke  _PrintFileInfo
+                                invoke  _ConsolePrint,addr odoa
+                                jmp        @B
+                        .else
+                                invoke  _ConsolePrint,addr szFail
+                                jmp        @B
+                        .endif
+                .endif
+
+                inc        esi
+                invoke        lstrcmp,esi,addr szRoot
+                dec        esi
+                .if        !eax
+                        
+                        lea        edi,szBuffer
+                        invoke        RtlZeroMemory,edi,sizeof szBuffer
+                        lodsb
+                        .if        al>60h
+                                sub        al,20H
+                        .endif
+                        mov        byte ptr[edi],al
+                        lodsb
+                        mov        byte ptr[edi+1],al
+                        mov        al,'\'
+                        inc        edi
+                        inc        edi
+                        stosb
+                        mov        al,'>'
+                        stosb        
+                        invoke _ConsolePrint,addr odoa
+                        jmp        @B
+                .endif  
+
+                invoke  _ConsolePrint,addr szError
+                invoke  _ConsolePrint,addr odoa
+                jmp     @B
+
+                end        start
+
+
+文件common.inc:
+IOCTL_GET_DIRECTORY_INFO  equ CTL_CODE(FILE_DEVICE_UNKNOWN, 800h, METHOD_BUFFERED, FILE_READ_ACCESS + FILE_WRITE_ACCESS)
+
+FILE_DIRECTORY_INFORMATION STRUCT                ; sizeof = 48h
+        NextEntryOffset                DWORD        ?
+        FileIndex                        DWORD        ?
+        CreationTime                LARGE_INTEGER        <>
+        LastAccessTime                LARGE_INTEGER        <>
+        LastWriteTime                LARGE_INTEGER        <>
+        ChangeTime                        LARGE_INTEGER        <>
+        EndOfFile                        LARGE_INTEGER        <>
+        AllocationSize                LARGE_INTEGER        <>
+        FileAttributes                DWORD        ?
+        FileNameLength                DWORD        ?
+        FileName                        WORD 1 dup(?)        ; WCHAR
+                                                WORD 3 dup(?)        ; padding
+FILE_DIRECTORY_INFORMATION ENDS
+PFILE_DIRECTORY_INFORMATION typedef ptr FILE_DIRECTORY_INFORMATION
+
+DIRECTORY_INFO   STRUCT
+        FileName        DB        50 dup(?)
+        CreationTime        LARGE_INTEGER        <>
+        EndOfFile        LARGE_INTEGER        <>
+        FileAttributes        DWORD        ?
+        Flag                DWORD        ?
+DIRECTORY_INFO         ENDS
+
+参考资料:
+(1)Windows平台内核级文件访问
+http://www.retcvc.com/cgi-bin/topic.cgi?forum=17&topic=1113&show=0
+(2)好象是Windows源代码http://www.koders.com/c/fid304D967B0B1C3F3B1FB80A6D31B5FABA820B185B.aspx
+(3)Rajeev Nagar, "Windows NT File System Internals. A Developer's Guide", O'Reilly

@@ -1,0 +1,57 @@
+			.386
+			.model flat, stdcall
+			option casemap:none
+include 		windows.inc
+include 		kernel32.inc
+include 		user32.inc
+includelib 		user32.lib
+includelib 		kernel32.lib
+
+			.data
+szXP			db "Windows XP ",0
+szNT4			db "Windows NT 4.0",0
+sz2000		db "Windows 2000 ",0
+sz2003		db "Windows Server 2003 Sevice ",0
+szVista		db "Windows Vista",0
+szCaption		db "Your OS version is",0
+szErrorInfo		db "Error in GetVersionEx",0
+szErrorFormat	db "The error code is ",0
+szBldNumFormat	db " Bulid %d",0
+
+			.data?
+szBldNum		db 256 dup(?)
+szOsVerInfo       db 256 dup(?)
+szErrorCode		db 256 dup(?)
+osVersion         OSVERSIONINFO <?>
+
+			.code
+start:
+	mov    osVersion.dwOSVersionInfoSize, SIZEOF OSVERSIONINFO
+ 	invoke GetVersionEx, ADDR osVersion
+      .if    eax == 0            
+            invoke GetLastError
+            invoke wsprintf,addr szErrorCode,addr szErrorFormat,eax
+            invoke MessageBox, NULL, addr szErrorCode, addr szErrorInfo, 0
+      .else
+      	.if 	osVersion.dwMajorVersion == 4
+      		invoke MessageBox,NULL,addr szNT4, addr szCaption,0
+      	.elseif osVersion.dwMajorVersion == 5
+      		.if	osVersion.dwMinorVersion == 0
+      			invoke lstrcpy, addr szOsVerInfo, addr sz2000
+      		.elseif osVersion.dwMinorVersion == 1
+      			invoke lstrcpy, addr szOsVerInfo, addr szXP
+      		.elseif osVersion.dwMinorVersion == 2
+      			invoke lstrcpy, addr szOsVerInfo, addr sz2003
+      		.endif
+      	.elseif osVersion.dwMajorVersion == 6 &&	osVersion.dwMinorVersion == 0
+      		invoke lstrcpy, addr szOsVerInfo, addr szVista     		
+      	.endif        	
+      	
+      	invoke lstrcat, addr szOsVerInfo, addr osVersion.szCSDVersion
+      	invoke wsprintf,addr szBldNum,addr szBldNumFormat,osVersion.dwBuildNumber
+      	invoke lstrcat, addr szOsVerInfo, addr szBldNum
+      	invoke MessageBox, NULL, addr szOsVerInfo, addr szCaption, 0
+     	.endif   	
+        
+   	invoke ExitProcess,NULL 
+end start

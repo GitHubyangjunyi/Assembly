@@ -1,0 +1,165 @@
+
+;*********************************************** 
+;程序名称：演示Base64编码/解码原理 
+;作者：罗聪 
+;日期：2002-9-14 
+;出处：http://laoluoc.yeah.net（老罗的缤纷天地） 
+;注意事项：如欲转载，请保持本程序的完整，并注明： 
+;转载自“老罗的缤纷天地”（http://laoluoc.yeah.net） 
+;*********************************************** 
+
+.386 
+.model flat, stdcall 
+option casemap:none 
+
+include \masm32\include\windows.inc 
+include \masm32\include\kernel32.inc 
+include \masm32\include\user32.inc 
+includelib \masm32\lib\kernel32.lib 
+includelib \masm32\lib\user32.lib 
+
+DllEntry proto :HINSTANCE, :DWORD, :DWORD 
+Base64Encode proto :DWORD, :DWORD 
+Base64Decode proto :DWORD, :DWORD 
+
+.data 
+;Base64 -> ASCII mapping table 
+base64_alphabet db "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" 
+
+;ASCII -> Base64 mapping table 
+base64table db 43 dup (255) 
+db 62,255,255,255,63,52,53,54,55,56,57,58,59,60,61,255 
+db 255,255,0,255,255,255,0,1,2,3,4,5,6,7,8,9,10,11,12,13 
+db 14,15,16,17,18,19,20,21,22,23,24,25,255,255,255,255 
+db 255,255,26,27,28,29,30,31,32,33,34,35,36,37,38 
+db 39,40,41,42,43,44,45,46,47,48,49,50,51 
+db 132 dup (255) 
+
+.code 
+DllEntry proc hInst: HINSTANCE, reason: DWORD, reserved1: DWORD 
+mov eax, TRUE 
+ret 
+DllEntry endp 
+
+
+;********************************************************** 
+;函数功能：进行Base64编码 
+;参数： 
+; source = 传入的字符串 
+; destination = 返回的编码 
+;********************************************************** 
+Base64Encode proc uses ebx edi esi source:DWORD, destination:DWORD 
+LOCAL sourcelen:DWORD 
+
+invoke lstrlen, source 
+mov sourcelen, eax 
+
+mov esi, source 
+mov edi, destination 
+@@base64loop: 
+xor eax, eax 
+.if sourcelen == 1 
+lodsb ;source ptr + 1 
+mov ecx, 2 ;bytes to output = 2 
+mov edx, 03D3Dh ;padding = 2 byte 
+dec sourcelen ;length - 1 
+.elseif sourcelen == 2 
+lodsw ;source ptr + 2 
+mov ecx, 3 ;bytes to output = 3 
+mov edx, 03Dh ;padding = 1 byte 
+sub sourcelen, 2 ;length - 2 
+.else 
+lodsd 
+mov ecx, 4 ;bytes to output = 4 
+xor edx, edx ;padding = 0 byte 
+dec esi ;source ptr + 3 (+4-1) 
+sub sourcelen, 3 ;length - 3 
+.endif 
+
+xchg al,ah ;flip eax completely 
+rol eax, 16 ;can this be done faster 
+xchg al,ah 
+
+@@: 
+push eax 
+and eax, 0FC000000h ;get the last 6 high bits 
+rol eax, 6 ;rotate them into al 
+mov al, byte ptr [offset base64_alphabet + eax] ;get encode character 
+stosb ;write to destination 
+pop eax 
+shl eax, 6 ;shift left 6 bits 
+dec ecx 
+jnz @B ;loop 
+
+cmp sourcelen, 0 
+jnz @@base64loop ;main loop 
+
+mov eax, edx ;add padding and null terminate 
+stosd 
+
+ret 
+Base64Encode endp 
+
+
+;********************************************************** 
+;函数功能：进行Base64解码 
+;参数： 
+; source = 传入的编码 
+; destination = 返回的字符串 
+;********************************************************** 
+Base64Decode proc uses ebx edi esi source:DWORD, destination:DWORD 
+LOCAL sourcelen:DWORD 
+
+invoke lstrlen, source 
+mov sourcelen, eax 
+
+mov esi, source ;esi <- source 
+mov edi, destination ;edi <- destination 
+mov ecx, sourcelen 
+shr ecx, 2 
+cld 
+
+;-------------[decoding part]--------------- 
+
+@@outer_loop: 
+push ecx 
+mov ecx, 4 
+xor ebx, ebx 
+lodsd 
+@@inner_loop: 
+push eax 
+and eax, 0ffh 
+mov al, byte ptr [offset base64table + eax] 
+cmp al, 255 
+je @@invalid_char 
+shl ebx, 6 
+or bl, al 
+pop eax 
+shr eax, 8 
+dec ecx 
+jnz @@inner_loop 
+mov eax, ebx 
+shl eax, 8 
+xchg ah, al 
+ror eax, 16 
+xchg ah, al 
+stosd 
+dec edi 
+pop ecx 
+dec ecx 
+jnz @@outer_loop 
+xor eax, eax 
+jmp @@decode_done 
+
+;------------------------------------------- 
+
+@@invalid_char: 
+mov eax, -1 
+@@decode_done: 
+ret 
+Base64Decode ENDP 
+
+
+end DllEntry 
+;******************** over ******************** 
+;by LC 

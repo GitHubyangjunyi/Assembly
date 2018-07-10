@@ -1,0 +1,1144 @@
+	InitIOleData				PROTO
+	CallHtmlWinProc				PROTO :DWORD,:DWORD,:DWORD,:DWORD
+	InitHtmlControl				PROTO :DWORD,:DWORD
+	DestroyHtmlControl			PROTO :DWORD
+	CreateWebBrowser			PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD
+	ResetHtmlSize				PROTO :DWORD,:DWORD
+	OLEIVERB_PRIMARY			equ 0
+	OLEIVERB_SHOW				equ -1
+	OLEIVERB_OPEN				equ -2
+	OLEIVERB_HIDE				equ -3
+	OLEIVERB_UIACTIVATE			equ -4
+	OLEIVERB_INPLACEACTIVATE	equ -5
+	OLEIVERB_DISCARDUNDOSTATE	equ -6
+	OLECLOSE_SAVEIFDIRTY		equ 0
+	OLECLOSE_NOSAVE				equ 1
+	OLECLOSE_PROMPTSAVE			equ 2
+	DOCHOSTUIFLAG_NO3DBORDER	equ 4
+	DOCHOSTUIFLAG_SCROLL_NO		equ 8
+	DISABLE_SCRIPT_INACTIVE		equ 10h
+	OLECMDID_SHOWSCRIPTERROR	equ 28h
+	wchar						typedef	word
+
+L MACRO sText:REQ
+    LOCAL str, chr, flag, cchr
+        cchr TEXTEQU <>
+        str  TEXTEQU <>
+        flag TEXTEQU <.>
+        FORC chr, <&sText> 
+            IFIDN flag, <\>     ;; IF flag == '\'  we're in control char mode
+                IFIDN <&chr>, <\>           ;; '\\' makes a single backslash
+                    cchr TEXTEQU <"\">      ;; just as in C
+                ENDIF
+                IFIDN <&chr>, <|>           ;; a pipe gives '!'
+                    cchr TEXTEQU <"!!">     ;; need 2 because of macro alias
+                ENDIF
+                IFIDN <&chr>, <n>           ;;  "n" gives a new line
+                    cchr TEXTEQU <13,10>
+                ENDIF
+                IFIDN <&chr>, <0>           ;; an "0" (terminating zero)
+                    cchr TEXTEQU <0>
+                ENDIF
+                flag TEXTEQU <.>
+            ELSE                ;; ELSE, not in control mode
+                IFIDN <&chr>, <\>           ;; if chr =='\', go to control mode
+                    flag TEXTEQU <\>
+                    cchr TEXTEQU <>
+                ELSE                        ;; else must be a regular char
+                    cchr CATSTR <">, <chr>, <"> 
+                ENDIF
+            ENDIF
+            IFDIF str, <>                   ;; need a comma before we add new
+                IFDIF flag, <\>
+                    str CATSTR str, <,>
+                ENDIF
+            ENDIF
+            IFDIF cchr, <>                  ;; check we don't add a blank
+                str CATSTR str, &cchr
+            ENDIF
+        ENDM
+        EXITM str
+    ENDM
+
+coinvoke MACRO pInterface:REQ, Interface:REQ, Function:REQ, args:VARARG
+    LOCAL istatement, arg
+    FOR arg, <args>     ;; run thru args to see if edx is lurking in there
+        IFIDNI <&arg>, <edx>
+            .ERR <edx is not allowed as a coinvoke parameter>
+        ENDIF
+    ENDM
+    IFIDNI <&pInterface>, <edx>
+        .ERR <edx is not allowed as a coinvoke parameter>
+    ENDIF
+    istatement CATSTR <invoke (Interface PTR[edx]).&Interface>,<_>,<&Function, pInterface>
+    IFNB <args>     ;; add the list of parameter arguments if any
+        istatement CATSTR istatement, <, >, <&args> 
+    ENDIF 
+    mov edx, pInterface
+    mov edx, [edx]
+    istatement
+ENDM
+
+comethod1Proto      typedef proto :DWORD
+comethod2Proto      typedef proto :DWORD,:DWORD
+comethod3Proto      typedef proto :DWORD,:DWORD,:DWORD
+comethod4Proto      typedef proto :DWORD,:DWORD,:DWORD,:DWORD
+comethod5Proto      typedef proto :DWORD,:DWORD,:DWORD,:DWORD,:DWORD
+comethod6Proto      typedef proto :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD
+comethod7Proto      typedef proto :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD
+comethod8Proto      typedef proto :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD
+comethod9Proto      typedef proto :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD
+
+comethod1           typedef ptr comethod1Proto
+comethod2           typedef ptr comethod2Proto
+comethod3           typedef ptr comethod3Proto
+comethod4           typedef ptr comethod4Proto
+comethod5           typedef ptr comethod5Proto
+comethod6           typedef ptr comethod6Proto
+comethod7           typedef ptr comethod7Proto
+comethod8           typedef ptr comethod8Proto
+comethod9           typedef ptr comethod9Proto
+
+_vtIOleObject MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_SetClientSite			comethod2 ?
+	&CastName&_GetClientSite			comethod2 ?
+	&CastName&_SetHostNames				comethod3 ?
+	&CastName&_Close					comethod2 ?
+	&CastName&_SetMoniker				comethod3 ?
+	&CastName&_GetMoniker				comethod4 ?
+	&CastName&_InitFromData				comethod4 ?
+	&CastName&_GetClipboardData			comethod3 ?
+	&CastName&_DoVerb					comethod7 ?
+	&CastName&_EnumVerbs				comethod2 ? 
+	&CastName&_Update					comethod1 ?
+	&CastName&_IsUpToDate				comethod1 ?
+	&CastName&_GetUserClassID			comethod2 ?
+	&CastName&_GetUserType				comethod3 ?
+	&CastName&_SetExtent				comethod3 ?
+	&CastName&_GetExtent				comethod3 ?
+	&CastName&_Advise					comethod3 ?
+	&CastName&_Unadvise					comethod2 ?
+	&CastName&_EnumAdvise				comethod2 ?
+	&CastName&_GetMiscStatus			comethod3 ?
+	&CastName&_SetColorScheme			comethod2 ?
+ENDM
+
+IOleObject	STRUCT
+    _vtIOleObject IOleObject
+IOleObject	ENDS
+
+_vtIOleInPlaceObject MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_GetWindow				comethod2 ?
+	&CastName&_ContextSensitiveHelp		comethod2 ?
+	&CastName&_InPlaceDeactivate		comethod1 ?
+	&CastName&_UIDeactivate				comethod1 ?
+	&CastName&_SetObjectRects			comethod3 ?
+	&CastName&_ReactivateAndUndo		comethod1 ?
+ENDM
+
+IOleInPlaceObject	STRUCT
+    _vtIOleInPlaceObject IOleInPlaceObject
+IOleInPlaceObject	ENDS
+
+_vtIPersistStreamInit MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_GetClassID				comethod2 ?
+	&CastName&_IsDirty					comethod1 ?
+	&CastName&_Load						comethod2 ?
+	&CastName&_Save						comethod3 ?
+	&CastName&_GetSizeMax				comethod2 ?
+	&CastName&_InitNew					comethod1 ?
+ENDM
+
+IPersistStreamInit	STRUCT
+	_vtIPersistStreamInit IPersistStreamInit
+IPersistStreamInit	ENDS
+
+_vtIWebBrowser2 MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_GetTypeInfoCount			comethod2 ?
+	&CastName&_GetTypeInfo				comethod4 ?
+	&CastName&_GetIDsOfNames			comethod6 ?
+	&CastName&_Invoke					comethod9 ?
+	&CastName&_GoBack					comethod1 ?
+	&CastName&_GoForward				comethod1 ?
+	&CastName&_GoHome					comethod1 ?
+	&CastName&_GoSearch					comethod1 ?
+	&CastName&_Navigate					comethod6 ?
+	&CastName&_Refresh					comethod1 ?
+	&CastName&_Refresh2					comethod2 ?
+	&CastName&_Stop						comethod1 ?
+	&CastName&_get_Application			comethod2 ?
+	&CastName&_get_Parent				comethod2 ?
+	&CastName&_get_Container			comethod2 ?
+	&CastName&_get_Document				comethod2 ?
+	&CastName&_get_TopLevelContainer	comethod2 ?
+	&CastName&_get_Type					comethod2 ?
+	&CastName&_get_Left					comethod2 ?
+	&CastName&_put_Left					comethod2 ?
+	&CastName&_get_Top					comethod2 ?
+	&CastName&_put_Top					comethod2 ?
+	&CastName&_get_Width				comethod2 ?
+	&CastName&_put_Width				comethod2 ?
+	&CastName&_get_Height				comethod2 ?
+	&CastName&_put_Height				comethod2 ?
+	&CastName&_get_LocationName			comethod2 ?
+	&CastName&_get_LocationURL			comethod2 ?
+	&CastName&_get_Busy					comethod2 ?
+	&CastName&_Quit						comethod1 ?
+	&CastName&_ClientToWindow			comethod3 ?
+	&CastName&_PutProperty				comethod3 ?
+	&CastName&_GetProperty				comethod3 ?
+	&CastName&_get_Name					comethod2 ?
+	&CastName&_get_HWND					comethod2 ?
+	&CastName&_get_FullName				comethod2 ?
+	&CastName&_get_Path					comethod2 ?
+	&CastName&_get_Visible				comethod2 ?
+	&CastName&_put_Visible				comethod2 ?
+	&CastName&_get_StatusBar			comethod2 ?
+	&CastName&_put_StatusBar			comethod2 ?
+	&CastName&_get_StatusText			comethod2 ?
+	&CastName&_put_StatusText			comethod2 ?
+	&CastName&_get_ToolBar				comethod2 ?
+	&CastName&_put_ToolBar				comethod2 ?
+	&CastName&_get_MenuBar				comethod2 ?
+	&CastName&_put_MenuBar				comethod2 ?
+	&CastName&_get_FullScreen			comethod2 ?
+	&CastName&_put_FullScreen			comethod2 ?
+	&CastName&_Navigate2				comethod6 ?
+	&CastName&_QueryStatusWB			comethod3 ?
+	&CastName&_ExecWB					comethod5 ?
+	&CastName&_ShowBrowserBar			comethod4 ?
+	&CastName&_get_ReadyState			comethod2 ?
+	&CastName&_get_Offline				comethod2 ?
+	&CastName&_put_Offline				comethod2 ?
+	&CastName&_get_Silent				comethod2 ?
+	&CastName&_put_Silent				comethod2 ?
+	&CastName&_get_RegisterAsBrowser	comethod2 ?
+	&CastName&_put_RegisterAsBrowser	comethod2 ?
+	&CastName&_get_RegisterAsDropTarge	comethod2 ?
+	&CastName&_put_RegisterAsDropTarget	comethod2 ?
+	&CastName&_get_TheaterMode			comethod2 ?
+	&CastName&_put_TheaterMode			comethod2 ?
+	&CastName&_get_AddressBar			comethod2 ?
+	&CastName&_put_AddressBar			comethod2 ?
+	&CastName&_get_Resizable			comethod2 ?
+	&CastName&_put_Resizable			comethod2 ?
+ENDM
+
+IWebBrowser2	STRUCT
+	_vtIWebBrowser2 IWebBrowser2
+IWebBrowser2	ENDS
+
+_vtIOleClientSite MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_SaveObject				comethod1 ?
+	&CastName&_GetMoniker				comethod4 ?
+	&CastName&_GetContainer				comethod2 ?
+	&CastName&_ShowObject				comethod1 ?
+	&CastName&_OnShowWindow				comethod2 ?
+	&CastName&_RequestNewObjectLayout	comethod1 ?
+ENDM
+
+IOleClientSite	STRUCT
+	_vtIOleClientSite IOleClientSite
+IOleClientSite	ENDS
+
+_vtIOleInPlaceSite MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_GetWindow				comethod2 ?
+	&CastName&_ContextSensitiveHelp		comethod2 ?
+	&CastName&_CanInPlaceActivate		comethod1 ?
+	&CastName&_OnInPlaceActivate		comethod1 ?
+	&CastName&_OnUIActivate				comethod1 ?
+	&CastName&_GetWindowContext			comethod6 ?
+	&CastName&_Scroll					comethod3 ?
+	&CastName&_OnUIDeactivate			comethod2 ?
+	&CastName&_OnInPlaceDeactivate		comethod1 ?
+	&CastName&_DiscardUndoState			comethod1 ?
+	&CastName&_DeactivateAndUndo		comethod1 ?
+	&CastName&_OnPosRectChange			comethod2 ?
+ENDM
+
+IOleInPlaceSite	STRUCT
+	_vtIOleInPlaceSite IOleInPlaceSite
+IOleInPlaceSite	ENDS
+
+_vtIOleInPlaceFrame MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_GetWindow				comethod2 ?
+	&CastName&_ContextSensitiveHelp		comethod2 ?
+	&CastName&_GetBorder				comethod2 ?
+	&CastName&_RequestBorderSpace		comethod2 ?
+	&CastName&_SetBorderSpace			comethod2 ?
+	&CastName&_SetActiveObject			comethod3 ?
+	&CastName&_InsertMenus				comethod3 ?
+	&CastName&_SetMenu					comethod4 ?
+	&CastName&_RemoveMenus				comethod2 ?
+	&CastName&_SetStatusText			comethod2 ?
+	&CastName&_EnableModeless			comethod2 ?
+	&CastName&_TranslateAccelerator		comethod3 ?
+ENDM
+
+IOleInPlaceFrame	STRUCT
+	_vtIOleInPlaceFrame IOleInPlaceFrame
+IOleInPlaceFrame	ENDS
+
+_vtIDispatch MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_GetTypeInfoCount			comethod2 ?
+	&CastName&_GetTypeInfo				comethod4 ?
+	&CastName&_GetIDsOfNames			comethod6 ?
+	&CastName&_Invoke					comethod9 ?
+ENDM
+
+IDispatch	STRUCT
+	_vtIDispatch IDispatch
+IDispatch	ENDS
+
+_vtIDocHostUIHandler MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_ShowContextMenu			comethod5 ?
+	&CastName&_GetHostInfo				comethod2 ?
+	&CastName&_ShowUI					comethod6 ?
+	&CastName&_HideUI					comethod1 ?
+	&CastName&_UpdateUI					comethod1 ?
+	&CastName&_EnableModeless			comethod2 ?
+	&CastName&_OnDocWindowActivate		comethod2 ?
+	&CastName&_OnFrameWindowActivate	comethod2 ?
+	&CastName&_ResizeBorder				comethod4 ?
+	&CastName&_TranslateAccelerator		comethod4 ?
+	&CastName&_GetOptionKeyPath			comethod3 ?
+	&CastName&_GetDropTarget			comethod3 ?
+	&CastName&_GetExternal				comethod2 ?
+	&CastName&_TranslateUrl				comethod4 ?
+	&CastName&_FilterDataObject			comethod3 ?
+ENDM
+
+IDocHostUIHandler	STRUCT
+	_vtIDocHostUIHandler IDocHostUIHandler
+IDocHostUIHandler	ENDS
+
+_vtIStream MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_Read						comethod4 ?
+	&CastName&_Write					comethod4 ?
+	&CastName&_Seek						comethod4 ?
+	&CastName&_SetSize					comethod2 ?
+	&CastName&_CopyTo					comethod5 ?
+	&CastName&_Commit					comethod2 ?
+	&CastName&_Revert					comethod1 ?
+	&CastName&_LockRegion				comethod4 ?
+	&CastName&_UnlockRegion				comethod4 ?
+	&CastName&_Stat						comethod3 ?
+	&CastName&_Clone					comethod2 ?
+ENDM
+
+IStream	STRUCT
+	_vtIStream IStream
+IStream	ENDS
+
+IOleWebBrowser	STRUCT
+	_IOleClientSite			dd ?
+	_IOleInPlaceSite		dd ?
+	_IOleInPlaceFrame		dd ?
+	_IDispatch				dd ?
+	_IDocHostUIHandler		dd ?
+	_IOleCommandTarget		dd ?
+	lindex					dd ?
+	hwndParent				dd ?
+	ppvWebBrowser			dd ?
+	lprcPosRect				RECT <?>
+IOleWebBrowser	ENDS
+
+IOleHtmlWin	STRUCT
+	pszURL					dd ?
+	hwndParent				dd ?
+	_IOleWebBrowser			dd ?
+	ppvWebObject			dd ?
+IOleHtmlWin	ENDS
+
+OLEINPLACEFRAMEINFO	STRUCT
+	cb						dd ?
+	fMDIApp					dd ?
+	hwndFrame				dd ?
+	haccel					dd ?
+	cAccelEntries			dd ?
+OLEINPLACEFRAMEINFO	ENDS
+
+DOCHOSTUIINFO	STRUCT
+	cbSize					dd ?
+	dwFlags					dd ?
+	dwDoubleClick			dd ?
+DOCHOSTUIINFO	ENDS
+
+_vtIOleCommandTarget MACRO CastName:REQ
+	&CastName&_QueryInterface			comethod3 ?
+	&CastName&_AddRef					comethod1 ?
+	&CastName&_Release					comethod1 ?
+	&CastName&_QueryStatus				comethod5 ?
+	&CastName&_Exec						comethod6 ?
+ENDM
+
+IOleCommandTarget	STRUCT
+	_vtIOleCommandTarget IOleCommandTarget
+IOleCommandTarget	ENDS
+
+; 作者：刘健英
+
+.data?
+hIOCS					IOleClientSite <?>
+hIOPS					IOleInPlaceSite <?>
+hIOPF					IOleInPlaceFrame <?>
+hIDP					IDispatch <?>
+hIDHU					IDocHostUIHandler <?>
+hIOCT					IOleCommandTarget <?>
+.data
+wsWebID					wchar	L(<Shell.Explorer\0>)
+IID_IClassFactory		GUID	{000000001H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_IUnknown			GUID	{000000000H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_IDispatch			GUID	{000020400H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_IOleObject			GUID	{000000112H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_NULL				GUID	{000000000H,00000H,00000H,{000H,000H,000H,000H,000H,000H,000H,000H}}
+IID_IPersistStreamInit	GUID	{07FD52380H,04E07H,0101BH,{0AEH,02DH,008H,000H,02BH,02EH,0C7H,013H}}
+IID_IWebBrowser2		GUID	{0D30C1661H,0CDAFH,011D0H,{08AH,03EH,000H,0C0H,04FH,0C9H,0E2H,06EH}}
+IID_IOleClientSite		GUID	{000000118H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_IOleInPlaceSite		GUID	{000000119H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_IOleInPlaceFrame	GUID	{000000116H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_IOleInPlaceObject	GUID	{000000113H,00000H,00000H,{0C0H,000H,000H,000H,000H,000H,000H,046H}}
+IID_IDocHostUIHandler	GUID	{0BD3F23C0H,0D43EH,011CFH,{089H,03BH,000H,0AAH,000H,0BDH,0CEH,01AH}}
+IID_IOleCommandTarget	GUID	{0B722BCCBH,04E68H,0101BH,{0A2H,0BCH,000H,0AAH,000H,040H,047H,070H}}
+IID_DocHostCommandHandler GUID	{0F38BC242H,0B950H,011D1H,{089H,018H,000H,0C0H,04FH,0C2H,0C8H,036H}}
+.code
+; 创建浏览器窗口
+CreateWebBrowser	proc hWin:DWORD,left:DWORD,top:DWORD,right:DWORD,bottom:DWORD,hLink:DWORD,hID:DWORD
+	LOCAL wc:WNDCLASSEX
+	LOCAL hCtl:DWORD,hMem:DWORD
+	invoke RtlZeroMemory,addr wc,sizeof wc
+	mov wc.cbSize,sizeof wc
+	mov wc.style,CS_SAVEBITS or CS_OWNDC or CS_DBLCLKS
+	mov wc.lpfnWndProc,offset CallHtmlWinProc
+	invoke LoadCursor,0,IDC_ARROW
+	mov wc.hCursor,eax
+	mov wc.hbrBackground,COLOR_WINDOWFRAME
+	mov wc.lpszClassName,STEXT("IEFrame")
+	invoke RegisterClassEx,addr wc
+	invoke GetProcessHeap
+	invoke HeapAlloc,eax,HEAP_ZERO_MEMORY,sizeof IOleHtmlWin
+	mov hMem,eax
+	m2m [eax.IOleHtmlWin].pszURL,hLink
+	invoke CreateWindowEx,0,STEXT("IEFrame"),0,WS_CHILD,left,top,right,bottom,hWin,hID,0,hMem
+	mov hCtl,eax
+	invoke ShowWindow,hCtl,SW_SHOW
+	invoke UpdateWindow,hWin
+	mov eax,hCtl
+	ret
+CreateWebBrowser	endp
+; 窗口过程
+CallHtmlWinProc	proc hWin:DWORD,uMsg:DWORD,wParam:DWORD,lParam:DWORD
+	mov eax,uMsg
+	.if eax == WM_CREATE
+		invoke InitIOleData
+		invoke GetWindowLong,hWin,GWL_USERDATA
+		invoke InitHtmlControl,hWin,eax
+	.elseif eax == WM_DESTROY
+		invoke GetWindowLong,hWin,GWL_USERDATA
+		invoke DestroyHtmlControl,eax
+	.elseif eax == WM_SIZE
+		invoke GetWindowLong,hWin,GWL_USERDATA
+		invoke ResetHtmlSize,eax,lParam
+	.elseif eax == WM_NCCREATE
+		mov eax,lParam
+		.if eax != 0
+			mov eax,[eax]
+			invoke SetWindowLong,hWin,GWL_USERDATA,eax
+		.endif
+	.endif
+    invoke DefWindowProc,hWin,uMsg,wParam,lParam
+    ret
+CallHtmlWinProc	endp
+InitHtmlControl	proc uses esi ebx,hWin:DWORD,lpData:DWORD
+	LOCAL pclsid:CLSID
+	LOCAL ppv:DWORD,hMem:DWORD,hLen:DWORD
+	LOCAL ppvObject:DWORD,ppvDocument:DWORD
+	invoke GetProcessHeap
+	invoke HeapAlloc,eax,HEAP_ZERO_MEMORY,sizeof IOleWebBrowser
+	mov hMem,eax
+	mov ebx,lpData
+	m2m [ebx.IOleHtmlWin].hwndParent,hWin
+	m2m [ebx.IOleHtmlWin]._IOleWebBrowser,hMem
+	mov esi,hMem
+	mov [esi.IOleWebBrowser]._IOleClientSite,offset hIOCS
+	mov [esi.IOleWebBrowser]._IOleInPlaceSite,offset hIOPS
+	mov [esi.IOleWebBrowser]._IOleInPlaceFrame,offset hIOPF
+	mov [esi.IOleWebBrowser]._IDispatch,offset hIDP
+	mov [esi.IOleWebBrowser]._IDocHostUIHandler,offset hIDHU
+	mov [esi.IOleWebBrowser]._IOleCommandTarget,offset hIOCT
+	mov [esi.IOleWebBrowser].lindex,1
+	m2m [esi.IOleWebBrowser].hwndParent,hWin
+	invoke CLSIDFromString,addr wsWebID,addr pclsid
+	invoke CoCreateInstance,addr pclsid,0,CLSCTX_INPROC_SERVER or CLSCTX_LOCAL_SERVER,addr IID_IUnknown,addr [esi.IOleWebBrowser].ppvWebBrowser
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IOleObject,addr ppvObject
+	coinvoke ppvObject,IOleObject,SetClientSite,esi
+	coinvoke ppvObject,IOleObject,Release
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IPersistStreamInit,addr ppvObject
+	coinvoke ppvObject,IPersistStreamInit,InitNew
+	coinvoke ppvObject,IPersistStreamInit,Release
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IOleObject,addr ppvObject
+	coinvoke ppvObject,IOleObject,DoVerb,OLEIVERB_INPLACEACTIVATE,0,esi,0,[esi.IOleWebBrowser].hwndParent,addr [esi.IOleWebBrowser].lprcPosRect
+	coinvoke ppvObject,IOleObject,DoVerb,OLEIVERB_SHOW,0,esi,0,[esi.IOleWebBrowser].hwndParent,addr [esi.IOleWebBrowser].lprcPosRect
+	coinvoke ppvObject,IOleObject,Release
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IOleObject,addr ppvObject
+	coinvoke ppvObject,IOleObject,DoVerb,OLEIVERB_UIACTIVATE,0,esi,0,[esi.IOleWebBrowser].hwndParent,addr [esi.IOleWebBrowser].lprcPosRect
+	coinvoke ppvObject,IOleObject,Release
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,AddRef
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IWebBrowser2,addr [ebx.IOleHtmlWin].ppvWebObject
+	coinvoke [ebx.IOleHtmlWin].ppvWebObject,IWebBrowser2,put_Offline,FALSE
+	invoke lstrlen,[ebx.IOleHtmlWin].pszURL
+	lea eax,[eax*2+2]
+	mov hLen,eax
+	invoke GetProcessHeap
+	invoke HeapAlloc,eax,HEAP_ZERO_MEMORY,hLen
+	mov hMem,eax
+	invoke MultiByteToWideChar,CP_ACP,0,[ebx.IOleHtmlWin].pszURL,-1,hMem,hLen
+	coinvoke [ebx.IOleHtmlWin].ppvWebObject,IWebBrowser2,Navigate,hMem,0,0,0,0
+	invoke GetProcessHeap
+	invoke HeapFree,eax,0,hMem
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,Release
+	ret
+InitHtmlControl	endp
+DestroyHtmlControl	proc uses ebx,lParam:DWORD
+	LOCAL ppvObject:DWORD
+	mov ebx,lParam
+	coinvoke dword ptr [ebx.IOleHtmlWin].ppvWebObject,IWebBrowser2,Release
+	mov esi,[ebx.IOleHtmlWin]._IOleWebBrowser
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IOleObject,addr ppvObject
+	coinvoke ppvObject,IOleObject,Close,OLECLOSE_NOSAVE
+	coinvoke ppvObject,IOleObject,SetClientSite,0
+	coinvoke ppvObject,IOleObject,Release
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IOleInPlaceObject,addr ppvObject
+	coinvoke ppvObject,IOleInPlaceObject,UIDeactivate
+	coinvoke ppvObject,IOleInPlaceObject,InPlaceDeactivate
+	coinvoke ppvObject,IOleInPlaceObject,Release
+	coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,Release
+	coinvoke [ebx.IOleHtmlWin]._IOleWebBrowser,IOleClientSite,Release
+	invoke GetProcessHeap
+	invoke HeapFree,eax,0,lParam
+	ret
+DestroyHtmlControl	endp
+InitIOleData	proc
+	mov hIOCS.IOleClientSite_QueryInterface,offset IOleClientSite_QueryInterface
+	mov hIOCS.IOleClientSite_AddRef,offset IOleClientSite_AddRef
+	mov hIOCS.IOleClientSite_Release,offset IOleClientSite_Release
+	mov hIOCS.IOleClientSite_SaveObject,offset IOleClientSite_SaveObject
+	mov hIOCS.IOleClientSite_GetMoniker,offset IOleClientSite_GetMoniker
+	mov hIOCS.IOleClientSite_GetContainer,offset IOleClientSite_GetContainer
+	mov hIOCS.IOleClientSite_ShowObject,offset IOleClientSite_ShowObject
+	mov hIOCS.IOleClientSite_OnShowWindow,offset IOleClientSite_OnShowWindow
+	mov hIOCS.IOleClientSite_RequestNewObjectLayout,offset IOleClientSite_RequestNewObjectLayout
+
+	mov hIOPS.IOleInPlaceSite_QueryInterface,offset IOleInPlaceSite_QueryInterface
+	mov hIOPS.IOleInPlaceSite_AddRef,offset IOleInPlaceSite_AddRef
+	mov hIOPS.IOleInPlaceSite_Release,offset IOleInPlaceSite_Release
+	mov hIOPS.IOleInPlaceSite_GetWindow,offset IOleInPlaceSite_GetWindow
+	mov hIOPS.IOleInPlaceSite_ContextSensitiveHelp,offset IOleInPlaceSite_ContextSensitiveHelp
+	mov hIOPS.IOleInPlaceSite_CanInPlaceActivate,offset IOleInPlaceSite_CanInPlaceActivate
+	mov hIOPS.IOleInPlaceSite_OnInPlaceActivate,offset IOleInPlaceSite_OnInPlaceActivate
+	mov hIOPS.IOleInPlaceSite_OnUIActivate,offset IOleInPlaceSite_OnUIActivate
+	mov hIOPS.IOleInPlaceSite_GetWindowContext,offset IOleInPlaceSite_GetWindowContext
+	mov hIOPS.IOleInPlaceSite_Scroll,offset IOleInPlaceSite_Scroll
+	mov hIOPS.IOleInPlaceSite_OnUIDeactivate,offset IOleInPlaceSite_OnUIDeactivate
+	mov hIOPS.IOleInPlaceSite_OnInPlaceDeactivate,offset IOleInPlaceSite_OnInPlaceDeactivate
+	mov hIOPS.IOleInPlaceSite_DiscardUndoState,offset IOleInPlaceSite_DiscardUndoState
+	mov hIOPS.IOleInPlaceSite_DeactivateAndUndo,offset IOleInPlaceSite_DeactivateAndUndo
+	mov hIOPS.IOleInPlaceSite_OnPosRectChange,offset IOleInPlaceSite_OnPosRectChange
+
+	mov hIOPF.IOleInPlaceFrame_QueryInterface,offset IOleInPlaceFrame_QueryInterface
+	mov hIOPF.IOleInPlaceFrame_AddRef,offset IOleInPlaceFrame_AddRef
+	mov hIOPF.IOleInPlaceFrame_Release,offset IOleInPlaceFrame_Release
+	mov hIOPF.IOleInPlaceFrame_GetWindow,offset IOleInPlaceFrame_GetWindow
+	mov hIOPF.IOleInPlaceFrame_ContextSensitiveHelp,offset IOleInPlaceFrame_ContextSensitiveHelp
+	mov hIOPF.IOleInPlaceFrame_GetBorder,offset IOleInPlaceFrame_GetBorder
+	mov hIOPF.IOleInPlaceFrame_RequestBorderSpace,offset IOleInPlaceFrame_RequestBorderSpace
+	mov hIOPF.IOleInPlaceFrame_SetBorderSpace,offset IOleInPlaceFrame_SetBorderSpace
+	mov hIOPF.IOleInPlaceFrame_SetActiveObject,offset IOleInPlaceFrame_SetActiveObject
+	mov hIOPF.IOleInPlaceFrame_InsertMenus,offset IOleInPlaceFrame_InsertMenus
+	mov hIOPF.IOleInPlaceFrame_SetMenu,offset IOleInPlaceFrame_SetMenu
+	mov hIOPF.IOleInPlaceFrame_RemoveMenus,offset IOleInPlaceFrame_RemoveMenus
+	mov hIOPF.IOleInPlaceFrame_SetStatusText,offset IOleInPlaceFrame_SetStatusText
+	mov hIOPF.IOleInPlaceFrame_EnableModeless,offset IOleInPlaceFrame_EnableModeless
+	mov hIOPF.IOleInPlaceFrame_TranslateAccelerator,offset IOleInPlaceFrame_TranslateAccelerator
+
+	mov hIDP.IDispatch_QueryInterface,offset IDispatch_QueryInterface
+	mov hIDP.IDispatch_AddRef,offset IDispatch_AddRef
+	mov hIDP.IDispatch_Release,offset IDispatch_Release
+	mov hIDP.IDispatch_GetTypeInfoCount,offset IDispatch_GetTypeInfoCount
+	mov hIDP.IDispatch_GetTypeInfo,offset IDispatch_GetTypeInfo
+	mov hIDP.IDispatch_GetIDsOfNames,offset IDispatch_GetIDsOfNames
+	mov hIDP.IDispatch_Invoke,offset IDispatch_Invoke
+
+	mov hIDHU.IDocHostUIHandler_QueryInterface,offset IDocHostUIHandler_QueryInterface
+	mov hIDHU.IDocHostUIHandler_AddRef,offset IDocHostUIHandler_AddRef
+	mov hIDHU.IDocHostUIHandler_Release,offset IDocHostUIHandler_Release
+	mov hIDHU.IDocHostUIHandler_ShowContextMenu,offset IDocHostUIHandler_ShowContextMenu
+	mov hIDHU.IDocHostUIHandler_GetHostInfo,offset IDocHostUIHandler_GetHostInfo
+	mov hIDHU.IDocHostUIHandler_ShowUI,offset IDocHostUIHandler_ShowUI
+	mov hIDHU.IDocHostUIHandler_HideUI,offset IDocHostUIHandler_HideUI
+	mov hIDHU.IDocHostUIHandler_UpdateUI,offset IDocHostUIHandler_UpdateUI
+	mov hIDHU.IDocHostUIHandler_EnableModeless,offset IDocHostUIHandler_EnableModeless
+	mov hIDHU.IDocHostUIHandler_OnDocWindowActivate,offset IDocHostUIHandler_OnDocWindowActivate
+	mov hIDHU.IDocHostUIHandler_OnFrameWindowActivate,offset IDocHostUIHandler_OnFrameWindowActivate
+	mov hIDHU.IDocHostUIHandler_ResizeBorder,offset IDocHostUIHandler_ResizeBorder
+	mov hIDHU.IDocHostUIHandler_TranslateAccelerator,offset IDocHostUIHandler_TranslateAccelerator
+	mov hIDHU.IDocHostUIHandler_GetOptionKeyPath,offset IDocHostUIHandler_GetOptionKeyPath
+	mov hIDHU.IDocHostUIHandler_GetDropTarget,offset IDocHostUIHandler_GetDropTarget
+	mov hIDHU.IDocHostUIHandler_GetExternal,offset IDocHostUIHandler_GetExternal
+	mov hIDHU.IDocHostUIHandler_TranslateUrl,offset IDocHostUIHandler_TranslateUrl
+	mov hIDHU.IDocHostUIHandler_FilterDataObject,offset IDocHostUIHandler_FilterDataObject
+
+	mov hIOCT.IOleCommandTarget_QueryInterface,offset IOleCommandTarget_QueryInterface
+	mov hIOCT.IOleCommandTarget_AddRef,offset IOleCommandTarget_AddRef
+	mov hIOCT.IOleCommandTarget_Release,offset IOleCommandTarget_Release
+	mov hIOCT.IOleCommandTarget_QueryStatus,offset IOleCommandTarget_QueryStatus
+	mov hIOCT.IOleCommandTarget_Exec,offset IOleCommandTarget_Exec
+
+	ret
+InitIOleData	endp
+ResetHtmlSize	proc uses esi,lpData:DWORD,lParam:DWORD
+	LOCAL ppvObject:DWORD
+	mov ecx,lParam
+	mov edx,lParam
+	shr ecx,10h
+	and edx,0ffffh
+	mov eax,lpData
+	mov esi,[eax.IOleHtmlWin]._IOleWebBrowser
+	.if esi != 0
+		mov [esi.IOleWebBrowser].lprcPosRect.left,0
+		mov [esi.IOleWebBrowser].lprcPosRect.top,0
+		mov [esi.IOleWebBrowser].lprcPosRect.right,edx
+		mov [esi.IOleWebBrowser].lprcPosRect.bottom,ecx
+		.if [esi.IOleWebBrowser].ppvWebBrowser != 0
+			coinvoke [esi.IOleWebBrowser].ppvWebBrowser,IOleObject,QueryInterface,addr IID_IOleInPlaceObject,addr ppvObject
+			coinvoke ppvObject,IOleInPlaceObject,SetObjectRects,addr [esi.IOleWebBrowser].lprcPosRect,addr [esi.IOleWebBrowser].lprcPosRect
+			coinvoke ppvObject,IOleInPlaceObject,Release
+		.endif
+	.endif
+	ret
+ResetHtmlSize	endp
+MemCmp	proc uses esi edi,lpBuff1:DWORD,lpBuff2:DWORD,hLen:DWORD
+	mov esi,lpBuff1
+	mov edi,lpBuff2
+	mov ecx,hLen
+	cld
+	repz cmpsb
+	.if ZERO?
+		xor eax,eax
+	.else
+		or eax,-1
+	.endif
+	ret
+MemCmp	endp
+
+IOleClientSite_QueryInterface	proc uses esi edi,_this:DWORD,riid:DWORD,ppvObject:DWORD
+	mov edi,ppvObject
+	.if edi != 0
+		mov esi,_this
+		.while TRUE
+			invoke MemCmp,riid,addr IID_IOleClientSite,sizeof IID_IOleClientSite
+			.if eax == 0
+				lea edx,[esi.IOleWebBrowser]._IOleClientSite
+				mov [edi],edx
+				.break
+			.endif
+			invoke MemCmp,riid,addr IID_IOleInPlaceSite,sizeof IID_IOleInPlaceSite
+			.if eax == 0
+				lea edx,[esi.IOleWebBrowser]._IOleInPlaceSite
+				mov [edi],edx
+				.break
+			.endif
+			invoke MemCmp,riid,addr IID_IOleInPlaceFrame,sizeof IID_IOleInPlaceFrame
+			.if eax == 0
+				lea edx,[esi.IOleWebBrowser]._IOleInPlaceFrame
+				mov [edi],edx
+				.break
+			.endif
+			invoke MemCmp,riid,addr IID_IDispatch,sizeof IID_IDispatch
+			.if eax == 0
+				lea edx,[esi.IOleWebBrowser]._IDispatch
+				mov [edi],edx
+				.break
+			.endif
+			invoke MemCmp,riid,addr IID_IDocHostUIHandler,sizeof IID_IDocHostUIHandler
+			.if eax == 0
+				lea edx,[esi.IOleWebBrowser]._IDocHostUIHandler
+				mov [edi],edx
+				.break
+			.endif
+			invoke MemCmp,riid,addr IID_IOleCommandTarget,sizeof IID_IOleCommandTarget
+			.if eax == 0
+				lea edx,[esi.IOleWebBrowser]._IOleCommandTarget
+				mov [edi],edx
+				.break
+			.endif
+			invoke MemCmp,riid,addr IID_IUnknown,sizeof IID_IUnknown
+			.if eax == 0
+				lea edx,[esi.IOleWebBrowser]._IOleClientSite
+				mov [edi],edx
+				.break
+			.endif
+			xor eax,eax
+			mov [edi],eax
+			mov eax,E_NOINTERFACE
+			.break
+		.endw
+		.if eax == 0
+			coinvoke esi,IOleObject,AddRef
+			xor eax,eax
+		.endif
+	.else
+		mov eax,E_POINTER
+	.endif
+	ret
+IOleClientSite_QueryInterface	endp
+
+IOleClientSite_AddRef	proc _this:DWORD
+	mov eax,_this
+	inc [eax.IOleWebBrowser].lindex
+	mov eax,[eax.IOleWebBrowser].lindex
+	ret
+IOleClientSite_AddRef	endp
+
+IOleClientSite_Release	proc _this:DWORD
+	mov eax,_this
+	dec [eax.IOleWebBrowser].lindex
+	.if ZERO?
+		.if [eax.IOleWebBrowser].ppvWebBrowser != 0
+			coinvoke [eax.IOleWebBrowser].ppvWebBrowser,IOleObject,Release
+			mov eax,_this
+			mov [eax.IOleWebBrowser].ppvWebBrowser,0
+			invoke GetProcessHeap
+			invoke HeapFree,eax,0,_this
+		.endif
+		xor eax,eax
+	.else
+		mov eax,[eax.IOleWebBrowser].lindex
+	.endif
+	ret
+IOleClientSite_Release	endp
+
+IOleClientSite_SaveObject	proc lp1:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleClientSite_SaveObject	endp
+
+IOleClientSite_GetMoniker	proc lp1:DWORD,lp2:DWORD,lp3:DWORD,lp4:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleClientSite_GetMoniker	endp
+
+IOleClientSite_GetContainer	proc lp1:DWORD,lp2:DWORD
+	mov eax,E_NOINTERFACE
+	ret
+IOleClientSite_GetContainer	endp
+
+IOleClientSite_ShowObject	proc lp1:DWORD
+	xor eax,eax
+	ret
+IOleClientSite_ShowObject	endp
+
+IOleClientSite_OnShowWindow	proc lp1:DWORD,lp2:DWORD
+	xor eax,eax
+	ret
+IOleClientSite_OnShowWindow	endp
+
+IOleClientSite_RequestNewObjectLayout	proc lp1:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleClientSite_RequestNewObjectLayout	endp
+
+IOleInPlaceSite_QueryInterface	proc
+	add dword ptr [esp+4],-4
+	jmp IOleClientSite_QueryInterface
+IOleInPlaceSite_QueryInterface	endp
+
+IOleInPlaceSite_AddRef	proc
+	add dword ptr [esp+4],-4
+	jmp IOleClientSite_AddRef
+IOleInPlaceSite_AddRef	endp
+
+IOleInPlaceSite_Release	proc
+	add dword ptr [esp+4],-4
+	jmp IOleClientSite_Release
+IOleInPlaceSite_Release	endp
+
+IOleInPlaceSite_GetWindow	proc uses ebx,_This:DWORD,phwnd:DWORD
+	add _This,-4
+	mov ebx,_This
+	invoke IsWindow,[ebx.IOleWebBrowser].hwndParent
+	.if eax != 0
+		mov edx,[ebx.IOleWebBrowser].hwndParent
+		mov ecx,phwnd
+		mov [ecx],edx
+		xor eax,eax
+	.else
+		mov eax,1
+	.endif
+	ret
+IOleInPlaceSite_GetWindow	endp
+
+IOleInPlaceSite_ContextSensitiveHelp	proc _This:DWORD,fEnterMode:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceSite_ContextSensitiveHelp	endp
+
+IOleInPlaceSite_CanInPlaceActivate	proc _This:DWORD
+	xor eax,eax
+	ret
+IOleInPlaceSite_CanInPlaceActivate	endp
+
+IOleInPlaceSite_OnInPlaceActivate	proc _This:DWORD
+	xor eax,eax
+	ret
+IOleInPlaceSite_OnInPlaceActivate	endp
+
+IOleInPlaceSite_OnUIActivate	proc _This:DWORD
+	xor eax,eax
+	ret
+IOleInPlaceSite_OnUIActivate	endp
+
+IOleInPlaceSite_GetWindowContext	proc uses esi edi ebx,_This:DWORD,ppFrame:DWORD,ppDoc:DWORD,lprcPosRect:DWORD,lprcClipRect:DWORD,lpFrameInfo:DWORD
+	LOCAL rct:RECT
+	add _This,-4
+	mov edi,_This
+	mov edx,ppFrame
+	mov esi,lpFrameInfo
+	mov ebx,lprcPosRect
+	lea eax,[edi.IOleWebBrowser]._IOleInPlaceFrame
+	mov [edx],eax
+	xor eax,eax
+	mov ecx,ppDoc
+	mov [ecx],eax
+	invoke GetClientRect,[edi.IOleWebBrowser].hwndParent,addr rct
+	mov [ebx.RECT].left,0
+	mov [ebx.RECT].top,0
+	m2m [ebx.RECT].right,rct.right
+	m2m [ebx.RECT].bottom,rct.bottom
+	invoke CopyRect,lprcClipRect,ebx
+	mov [esi.OLEINPLACEFRAMEINFO].cb,sizeof OLEINPLACEFRAMEINFO
+	xor eax,eax
+	mov [esi.OLEINPLACEFRAMEINFO].fMDIApp,eax
+	mov [esi.OLEINPLACEFRAMEINFO].haccel,eax
+	mov [esi.OLEINPLACEFRAMEINFO].cAccelEntries,eax
+	m2m [esi.OLEINPLACEFRAMEINFO].hwndFrame,[edi.IOleWebBrowser].hwndParent
+	mov ecx,ppFrame
+	mov ecx,[ecx]
+	coinvoke ecx,IOleInPlaceFrame,AddRef
+	xor eax,eax
+	ret
+IOleInPlaceSite_GetWindowContext	endp
+
+IOleInPlaceSite_Scroll	proc _This:DWORD,scrollExtantX:DWORD,scrollExtantY:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceSite_Scroll	endp
+
+IOleInPlaceSite_OnUIDeactivate	proc _This:DWORD,fUndoable:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceSite_OnUIDeactivate	endp
+
+IOleInPlaceSite_OnInPlaceDeactivate	proc _This:DWORD
+	xor eax,eax
+	ret
+IOleInPlaceSite_OnInPlaceDeactivate	endp
+
+IOleInPlaceSite_DiscardUndoState	proc _This:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceSite_DiscardUndoState	endp
+
+IOleInPlaceSite_DeactivateAndUndo	proc _This:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceSite_DeactivateAndUndo	endp
+
+IOleInPlaceSite_OnPosRectChange	proc _This:DWORD,lprcPosRect:DWORD
+	xor eax,eax
+	ret
+IOleInPlaceSite_OnPosRectChange	endp
+
+IOleInPlaceFrame_QueryInterface	proc
+	add dword ptr [esp+4],-8
+	jmp IOleClientSite_QueryInterface
+IOleInPlaceFrame_QueryInterface	endp
+
+IOleInPlaceFrame_AddRef	proc
+	add dword ptr [esp+4],-8
+	jmp IOleClientSite_AddRef
+IOleInPlaceFrame_AddRef	endp
+
+IOleInPlaceFrame_Release	proc
+	add dword ptr [esp+4],-8
+	jmp IOleClientSite_Release
+IOleInPlaceFrame_Release	endp
+
+IOleInPlaceFrame_GetWindow	proc uses ebx,_This:DWORD,phwnd:DWORD
+	add _This,-8
+	mov ebx,_This
+	invoke IsWindow,[ebx.IOleWebBrowser].hwndParent
+	.if eax != 0
+		mov edx,[ebx.IOleWebBrowser].hwndParent
+		mov ecx,phwnd
+		mov [ecx],edx
+		xor eax,eax
+	.else
+		mov eax,1
+	.endif
+	ret
+IOleInPlaceFrame_GetWindow	endp
+
+IOleInPlaceFrame_ContextSensitiveHelp	proc _This:DWORD,fEnterMode:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_ContextSensitiveHelp	endp
+
+IOleInPlaceFrame_GetBorder	proc _This:DWORD,lprectBorder:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_GetBorder	endp
+
+IOleInPlaceFrame_RequestBorderSpace	proc _This:DWORD,pborderwidths:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_RequestBorderSpace	endp
+
+IOleInPlaceFrame_SetBorderSpace	proc _This:DWORD,pborderwidths:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_SetBorderSpace	endp
+
+IOleInPlaceFrame_SetActiveObject	proc _This:DWORD,pActiveObject:DWORD,pszObjName:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_SetActiveObject	endp
+
+IOleInPlaceFrame_InsertMenus	proc _This:DWORD,hmenuShared:DWORD,lpMenuWidths:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_InsertMenus	endp
+
+IOleInPlaceFrame_SetMenu	proc _This:DWORD,hmenuShared:DWORD,holemenu:DWORD,hwndActiveObject:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_SetMenu	endp
+
+IOleInPlaceFrame_RemoveMenus	proc _This:DWORD,hmenuShared:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_RemoveMenus	endp
+
+IOleInPlaceFrame_SetStatusText	proc _This:DWORD,pszStatusText:DWORD
+	xor eax,eax
+	ret
+IOleInPlaceFrame_SetStatusText	endp
+
+IOleInPlaceFrame_EnableModeless	proc _This:DWORD,fEnable:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleInPlaceFrame_EnableModeless	endp
+
+IOleInPlaceFrame_TranslateAccelerator	proc _This:DWORD,lpmsg:DWORD,wID:DWORD
+	xor eax,eax
+	ret
+IOleInPlaceFrame_TranslateAccelerator	endp
+
+IDispatch_QueryInterface	proc
+	add dword ptr [esp+4],-12
+	jmp IOleClientSite_QueryInterface
+IDispatch_QueryInterface	endp
+
+IDispatch_AddRef	proc
+	add dword ptr [esp+4],-12
+	jmp IOleClientSite_AddRef
+IDispatch_AddRef	endp
+
+IDispatch_Release	proc
+	add dword ptr [esp+4],-12
+	jmp IOleClientSite_Release
+IDispatch_Release	endp
+
+IDispatch_GetTypeInfoCount	proc _This:DWORD,pctinfo:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDispatch_GetTypeInfoCount	endp
+
+IDispatch_GetTypeInfo	proc _This:DWORD,iTInfo:DWORD,lcid:DWORD,ppTInfo:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDispatch_GetTypeInfo	endp
+
+IDispatch_GetIDsOfNames	proc _This:DWORD,riid:DWORD,rgszNames:DWORD,cNames:DWORD,lcid:DWORD,rgDispId:DWORD
+	mov eax,rgDispId
+	or dword ptr [eax],-1
+	mov eax,DISP_E_UNKNOWNNAME
+	ret
+IDispatch_GetIDsOfNames	endp
+
+IDispatch_Invoke	proc _This:DWORD,dispIdMember:DWORD,riid:DWORD,lcid:DWORD,wFlags:DWORD,pDispParams:DWORD,pVarResult:DWORD,pExcepInfo:DWORD,puArgErr:DWORD
+	mov eax,DISP_E_MEMBERNOTFOUND
+	ret
+IDispatch_Invoke	endp
+
+IDocHostUIHandler_QueryInterface	proc
+	add dword ptr [esp+4],-16
+	jmp IOleClientSite_QueryInterface
+IDocHostUIHandler_QueryInterface	endp
+
+IDocHostUIHandler_AddRef	proc
+	add dword ptr [esp+4],-16
+	jmp IOleClientSite_AddRef
+IDocHostUIHandler_AddRef	endp
+
+IDocHostUIHandler_Release	proc
+	add dword ptr [esp+4],-16
+	jmp IOleClientSite_Release
+IDocHostUIHandler_Release	endp
+
+IDocHostUIHandler_ShowContextMenu	proc _This:DWORD,dwID:DWORD,ppt:DWORD,pcmdtReserved:DWORD,pdispReserved:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_ShowContextMenu	endp
+
+IDocHostUIHandler_GetHostInfo	proc _This:DWORD,pInfo:DWORD
+	mov eax,pInfo
+	.if eax != 0
+		; 去掉边框
+		or [eax.DOCHOSTUIINFO].dwFlags,DOCHOSTUIFLAG_NO3DBORDER
+		; 去掉滚动条
+		;or [eax.DOCHOSTUIINFO].dwFlags,DOCHOSTUIFLAG_SCROLL_NO
+	.endif
+	mov eax,S_OK
+	ret
+IDocHostUIHandler_GetHostInfo	endp
+
+IDocHostUIHandler_ShowUI	proc _This:DWORD,dwID:DWORD,pActiveObject:DWORD,pCommandTarget:DWORD,pFrame:DWORD,pDoc:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_ShowUI	endp
+
+IDocHostUIHandler_HideUI	proc _This:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_HideUI	endp
+
+IDocHostUIHandler_UpdateUI	proc _This:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_UpdateUI	endp
+
+IDocHostUIHandler_EnableModeless	proc _This:DWORD,fEnable:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_EnableModeless	endp
+
+IDocHostUIHandler_OnDocWindowActivate	proc _This:DWORD,fActivate:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_OnDocWindowActivate	endp
+
+IDocHostUIHandler_OnFrameWindowActivate	proc _This:DWORD,fActivate:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_OnFrameWindowActivate	endp
+
+IDocHostUIHandler_ResizeBorder	proc _This:DWORD,prcBorder:DWORD,pUIWindow:DWORD,fRameWindow:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_ResizeBorder	endp
+
+IDocHostUIHandler_TranslateAccelerator	proc _This:DWORD,lpMsg:DWORD,pguidCmdGroup:DWORD,nCmdID:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_TranslateAccelerator	endp
+
+IDocHostUIHandler_GetOptionKeyPath	proc _This:DWORD,pchKey:DWORD,_dw:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_GetOptionKeyPath	endp
+
+IDocHostUIHandler_GetDropTarget	proc _This:DWORD,pDropTarget:DWORD,ppDropTarget:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_GetDropTarget	endp
+
+IDocHostUIHandler_GetExternal	proc _This:DWORD,ppDispatch:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_GetExternal	endp
+
+IDocHostUIHandler_TranslateUrl	proc _This:DWORD,dwTranslate:DWORD,pchURLIn:DWORD,ppchURLOut:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_TranslateUrl	endp
+
+IDocHostUIHandler_FilterDataObject	proc _This:DWORD,pDO:DWORD,ppDORet:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IDocHostUIHandler_FilterDataObject	endp
+
+IOleCommandTarget_QueryInterface	proc
+	add dword ptr [esp+4],-20
+	jmp IOleClientSite_QueryInterface
+IOleCommandTarget_QueryInterface	endp
+
+IOleCommandTarget_AddRef	proc
+	add dword ptr [esp+4],-20
+	jmp IOleClientSite_AddRef
+IOleCommandTarget_AddRef	endp
+
+IOleCommandTarget_Release	proc
+	add dword ptr [esp+4],-20
+	jmp IOleClientSite_Release
+IOleCommandTarget_Release	endp
+
+IOleCommandTarget_QueryStatus	proc _This:DWORD,pguidCmdGroup:DWORD,cCmds:DWORD,prgCmds:DWORD,pCmdText:DWORD
+	mov eax,E_NOTIMPL
+	ret
+IOleCommandTarget_QueryStatus	endp
+
+IOleCommandTarget_Exec	proc _This:DWORD,pguidCmdGroup:DWORD,nCmdID:DWORD,nCmdexecopt:DWORD,pvaIn:DWORD,pvaOut:DWORD
+	; 屏蔽弹出的脚本错误窗口
+	.if pguidCmdGroup != 0
+		invoke MemCmp,pguidCmdGroup,addr IID_DocHostCommandHandler,sizeof IID_DocHostCommandHandler
+		.if eax == 0
+			.if nCmdID == OLECMDID_SHOWSCRIPTERROR
+				mov eax,S_OK
+				ret
+			.endif
+		.endif
+	.endif
+	mov eax,E_NOTIMPL
+	ret
+IOleCommandTarget_Exec	endp

@@ -1,0 +1,265 @@
+.586
+.model flat,stdcall
+option casemap:none
+
+include windows.inc
+include masm32.inc
+include user32.inc
+include kernel32.inc
+include advapi32.inc
+include rasapi32.inc
+include Macro.inc
+
+includelib user32.lib
+includelib kernel32.lib
+includelib advapi32.lib
+includelib rasapi32.lib
+includelib masm32.lib
+
+LSA_OBJECT_ATTRIBUTES struct
+	@Length                   dd ?
+	RootDirectory             dd ?
+	ObjectName                dd ?
+	Attributes                dd ?
+	SecurityDescriptor        dd ?
+	SecurityQualityOfService  dd ?
+LSA_OBJECT_ATTRIBUTES ends
+
+LSA_UNICODE_STRING struct
+	@Length        dw ?
+	MaxLength      dw ?
+	lpBuffer       dd ?
+LSA_UNICODE_STRING ends
+
+_RASENTRYNAME struct
+	dwSize dd ?
+        szEntryName db RAS_MaxEntryName + 4 dup(?)       ;在C和ASM注意结构体字节对齐
+        ;dwFlags dd ?
+        ;szPhonebookPath db MAX_PATH + 1 dup(?)
+_RASENTRYNAME ends
+
+_RASDIALPARAMS struct
+	dwSize dd ?                                          ;在C和ASM注意结构体字节对齐,只是到最后比(编译器VC6.0)C版的多了4个字节，不解ing?
+        szEntryName db RAS_MaxEntryName + 1 dup(?)
+        szPhoneNumber db RAS_MaxPhoneNumber + 1 dup(?)
+        szCallbackNumber db RAS_MaxCallbackNumber + 1 dup(?)
+        szUserName db UNLEN + 1 dup(?)
+        szPassword db PWLEN + 1 dup(?)
+        szDomain db DNLEN + 1 dup(?)
+        dwSubEntry dd ?
+        dwCallbackId db 4+3 dup(?)
+_RASDIALPARAMS ends
+
+.data?
+szUserName    db 128  dup(?)
+szDomainName  db 128  dup(?)
+buf           db 40   dup(?)
+pri_data      db 500h dup(?)
+szPhoneBook1  db 512  dup(?)
+szPhoneBook2  db 512  dup(?)
+@buf          db 256  dup(?)
+dwSize        dd ?
+pSid          dd ?
+pREN          dd ?
+dwDNsize      dd ?
+peUse         dd ?
+lpsid         dd ?
+hPolicy       dd ?
+hStd          dd ?
+cb            dd ?
+cEntries      dd ?
+len           dd ?
+Flags         dd ?
+NUM           dd ?
+LOA           LSA_OBJECT_ATTRIBUTES <>
+pLUS          dd ?
+KeyName       LSA_UNICODE_STRING   <>
+
+.const
+szEnd         dw "#","0",0
+
+.code
+_GetRealPassword proc uses ebx esi edi pszEntryName,dwUID
+LOCAL szUID[60]:byte
+LOCAL @Len
+        invoke RtlZeroMemory,addr szUID,sizeof szUID
+        invoke wsprintf,addr szUID,CTEXT("%d"),dwUID
+        invoke lstrlen,pszEntryName
+        mov @Len,eax
+        mov ebx,offset pri_data
+        mov esi,ebx
+        mov edi,ebx
+        mov NUM,0
+        .while TRUE
+                mov ecx,NUM
+                push ecx
+                mov ebx,edi
+                add ebx,ecx
+        	invoke lstrcmp,ebx,addr szUID
+        	.if !eax
+        		.while TRUE
+        		        mov esi,edi
+        		        add esi,NUM
+        			invoke lstrcmp,esi,pszEntryName
+        			        .if !eax
+        			        	add eax,edi
+        			        	add eax,NUM
+        			        	add eax,@Len
+        			        	inc eax
+        			        	pop ecx
+        			        	jmp _End
+        			        .endif
+        			mov eax,len
+        			sub eax,NUM
+        			add NUM,1
+        			.break .if !eax
+        		.endw
+        	.endif
+        	pop ecx
+        	mov NUM,ecx
+        	mov eax,len
+        	sub eax,ecx
+        	add NUM,1
+        	.break .if !eax
+        .endw
+        	
+_End:	
+	ret
+
+_GetRealPassword endp
+Start:
+invoke SetConsoleTitle,CTEXT("ADSL密码获取器")
+invoke GetStdHandle,STD_OUTPUT_HANDLE
+mov hStd,eax
+invoke SetConsoleTextAttribute,hStd,0ah
+invoke StdOut,CTEXT("代码来自xfocus的eyas",10,13,"我只是将其改成Win32asm，没什么技术含量",10,13)
+mov eax,sizeof szUserName
+push eax
+pop dwSize
+invoke GetUserName,addr szUserName,addr dwSize
+mov dwSize,0
+mov eax,sizeof szDomainName
+push eax
+pop dwDNsize
+invoke LookupAccountName,NULL,addr szUserName,pSid,addr dwSize,addr szDomainName,addr dwDNsize,addr peUse
+.if !dwSize
+	invoke StdOut,CTEXT("LookupAccountName Failed!")
+	jmp @End
+.endif
+invoke GlobalAlloc,NULL,dwSize
+mov pSid,eax
+invoke LookupAccountName,NULL,addr szUserName,pSid,addr dwSize,addr szDomainName,addr dwDNsize,addr peUse
+invoke ConvertSidToStringSidW,pSid,addr lpsid
+invoke RtlZeroMemory,addr LOA,sizeof LSA_OBJECT_ATTRIBUTES
+mov eax,sizeof LSA_OBJECT_ATTRIBUTES
+mov LOA.@Length,eax
+invoke LsaOpenPolicy,0,addr LOA,800h,addr hPolicy
+invoke GlobalAlloc,NULL,sizeof LSA_UNICODE_STRING
+mov pLUS,eax
+mov esi,eax
+assume esi:ptr LSA_UNICODE_STRING
+mov [esi].MaxLength,500h
+mov [esi].@Length,500h
+invoke GlobalAlloc,NULL,500h
+mov [esi].lpBuffer,eax
+mov KeyName.MaxLength,200h
+invoke GlobalAlloc,NULL,200h
+mov KeyName.lpBuffer,eax
+assume esi:nothing
+invoke MultiByteToWideChar,CP_ACP,0,CTEXT("RasDialParams!"),-1,addr buf,40
+invoke lstrcpyW,KeyName.lpBuffer,addr buf
+invoke lstrcatW,KeyName.lpBuffer,lpsid
+invoke lstrcatW,KeyName.lpBuffer,addr szEnd
+invoke lstrlenW,KeyName.lpBuffer
+shl eax,1
+mov KeyName.@Length,ax
+invoke LsaRetrievePrivateData,hPolicy,addr KeyName, addr pLUS
+.if eax
+        invoke StdOut,CTEXT("LsaRetrievePrivateData Failed!")
+	jmp @End
+.endif
+mov esi,pLUS
+assume esi:ptr LSA_UNICODE_STRING
+xor ecx,ecx
+mov cx,[esi].@Length
+invoke WideCharToMultiByte,CP_ACP,0,[esi].lpBuffer,ecx,addr pri_data,sizeof pri_data,0,0
+mov len,eax
+.if !eax
+	invoke StdOut,CTEXT("WideCharToMultiByte Failed!")
+	jmp @End
+.endif
+assume esi:nothing
+invoke GetEnvironmentVariable,CTEXT("ALLUSERSPROFILE"),addr szPhoneBook1,sizeof szPhoneBook1
+invoke GetEnvironmentVariable,CTEXT("USERPROFILE"),addr szPhoneBook2,sizeof szPhoneBook2
+invoke lstrcat,addr szPhoneBook1,CTEXT("\\Application Data\\Microsoft\\Network\\Connections\\pbk\\rasphone.pbk")
+invoke lstrcat,addr szPhoneBook2,CTEXT("\\Application Data\\Microsoft\\Network\\Connections\\pbk\\rasphone.pbk")
+invoke GlobalAlloc,NULL,sizeof _RASENTRYNAME
+mov esi,eax
+assume esi:ptr _RASENTRYNAME
+mov [esi].dwSize,sizeof _RASENTRYNAME
+mov cb,sizeof _RASENTRYNAME
+invoke RasEnumEntries,NULL,NULL,esi,offset cb,addr cEntries
+.if eax==ERROR_BUFFER_TOO_SMALL
+        assume esi:nothing
+	invoke GlobalAlloc,NULL,cb
+	mov esi,eax
+	assume esi:ptr _RASENTRYNAME
+	mov [esi].dwSize,sizeof _RASENTRYNAME
+.endif
+invoke RasEnumEntries,NULL,NULL,esi,offset cb,addr cEntries
+.if eax!=ERROR_SUCCESS
+	invoke StdOut,CTEXT("RasEnumEntries Failed!")
+	jmp @End
+.endif
+mov Flags,0
+.while TRUE
+        invoke RtlZeroMemory,addr @buf,sizeof @buf
+	invoke GlobalAlloc,NULL,sizeof _RASDIALPARAMS
+	mov edi,eax
+	assume edi:ptr _RASDIALPARAMS
+	invoke lstrcpy,addr [edi].szEntryName,addr [esi].szEntryName
+	mov [edi].dwSize,sizeof _RASDIALPARAMS
+	invoke RasGetEntryDialParams,0,edi,addr Flags
+	invoke GetPrivateProfileInt,addr [esi].szEntryName,CTEXT("DialParamsUID"),0,addr szPhoneBook1
+	.if !eax
+		invoke GetPrivateProfileInt,addr [esi].szEntryName,CTEXT("DialParamsUID"),0,addr szPhoneBook2
+		push eax
+		.if !eax
+		        invoke StdOut,CTEXT("GetPrivateProfileInt Failed!")
+		        .break
+		.endif
+		pop eax
+	.endif
+	invoke _GetRealPassword,addr [edi].szUserName,eax
+	.if eax
+        push eax
+        invoke RtlZeroMemory,addr @buf,sizeof @buf
+        invoke lstrcpy,addr @buf,CTEXT("EntryName : ")
+        invoke lstrcat,addr @buf,addr [esi].szEntryName
+        invoke lstrcat,addr @buf,CTEXT(10,13)
+        invoke StdOut,addr @buf
+        invoke RtlZeroMemory,addr @buf,sizeof @buf
+        invoke lstrcpy,addr @buf,CTEXT("UserName  : ")
+        invoke lstrcat,addr @buf,addr [edi].szUserName
+        invoke lstrcat,addr @buf,CTEXT(10,13)
+        invoke StdOut,addr @buf
+        invoke RtlZeroMemory,addr @buf,sizeof @buf
+        invoke lstrcpy,addr @buf,CTEXT("PassWord  : ")
+        pop eax
+        invoke lstrcat,addr @buf,eax
+        invoke lstrcat,addr @buf,CTEXT(10,13)
+        invoke StdOut,addr @buf
+       	.endif
+	add esi,sizeof _RASENTRYNAME
+	mov ecx,cEntries
+	dec ecx
+	mov cEntries,ecx
+	.break .if !ecx
+.endw
+@Error:
+assume edi:nothing
+assume esi:nothing
+@End:
+invoke LsaClose,hPolicy
+invoke ExitProcess,NULL
+end Start

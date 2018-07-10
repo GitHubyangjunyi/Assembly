@@ -1,0 +1,1090 @@
+;*******************************************************************************
+;
+; 文件描述
+;     MagicBoard.asm
+;     <魔板> 汇编源代码
+;
+; 更新记录
+;
+;     2007年12月26日 : 创建 < 05071217 刘泽围 >
+;
+;*******************************************************************************
+.386
+.model flat, stdcall
+option casemap : none
+
+include windows.inc
+include kernel32.inc
+include user32.inc
+include gdi32.inc
+include comctl32.inc
+include winmm.inc
+
+includelib kernel32.lib
+includelib user32.lib
+includelib gdi32.lib
+includelib comctl32.lib
+includelib winmm.lib
+
+
+;*******************************************************************************
+; 宏定义
+;*******************************************************************************
+
+;
+; 图标 / 光标
+;
+IDI_APP     equ 1000h
+IDC_NORMAL  equ 1001h
+IDC_FINGER  equ 1002h
+
+;
+; 菜单 / 工具条 / 关于对话框
+;
+IDM_APP             equ 2000h
+IDM_PREV_PICTURE    equ 2001h
+IDM_NEXT_PICTURE    equ 2002h
+IDM_RESTART_PICTURE equ 2003h
+IDM_ABOUT           equ 2004h
+IDM_EXIT            equ 2005h
+
+IDB_TOOLBAR equ 3000h
+
+IDD_ABOUT   equ 4000h
+
+
+;*******************************************************************************
+; 数据段
+;*******************************************************************************
+
+;
+; 程序名 / 工具条按钮
+;
+.const
+AppName db  "魔板 1.0 - Win32 汇编程序设计", 0
+
+TBButtonNum dd 6h
+TBButton equ this byte
+TBBUTTON < 0, IDM_PREV_PICTURE, TBSTATE_ENABLED, TBSTYLE_BUTTON, 0, 0, -1 >
+TBBUTTON < 1, IDM_NEXT_PICTURE, TBSTATE_ENABLED, TBSTYLE_BUTTON, 0, 0, -1 >
+TBBUTTON < 2, IDM_RESTART_PICTURE, TBSTATE_ENABLED, TBSTYLE_BUTTON, 0, 0, -1 >
+TBBUTTON < 0, 0, TBSTATE_ENABLED, TBSTYLE_SEP, 0, 0, -1 >
+TBBUTTON < 3, IDM_ABOUT, TBSTATE_ENABLED, TBSTYLE_BUTTON, 0, 0, -1 >
+TBBUTTON < 4, IDM_EXIT, TBSTATE_ENABLED, TBSTYLE_BUTTON, 0, 0, -1 >
+
+;
+; 程序实例句柄、命令行参数 / 主窗口大小、风格、句柄、类、消息、坐标
+;
+.data?
+AppInstance HINSTANCE ?
+AppCmdLine  LPSTR ?
+
+MainWndRect     RECT <>
+MainWndWidth    dd ?
+MainWndHeight   dd ?
+MainWndStyle    dd ?
+MainWndHdl      HWND ?
+MainWndCls      WNDCLASSEX <>
+MainWndMsg      MSG <>
+MainWndPosX     dd ?
+MainWndPosY     dd ?
+
+;
+; 游戏数据
+;
+.const
+TotalPicture    dd  4  ; 总图片张数
+
+ClientRect  RECT    < 0, 0, 467, 189 >  ; 客户区大小
+GameOrgX    dd      6                   ; 游戏面板绘制坐标系原点 x 坐标
+GameOrgY    dd      33                  ; 游戏面板绘制坐标系原点 y 坐标
+StatOrgX    dd      313                 ; 状态面板绘制坐标系原点 x 坐标
+StatOrgY    dd      30                  ; 状态面板绘制坐标系原点 y 坐标
+
+StrMessageBoxInfo   db  "提示信息", 0
+StrMessageBoxError  db  "严重错误", 0
+StrRestartPicture   db  "确定重新开始吗?", 0
+StrFinishPicture    db  "成功完成!", 0
+
+StrPictureName      db  "Data\Picture_%d.bmp", 0    ; 游戏原图文件名格式
+StrPictureError     db  "加载图片资源 %s 失败!", 0
+StrHdcError         db  "创建设备环境句柄失败!", 0
+
+StrRestartSound     db "Data\Restart.wav", 0
+StrStepSound        db "Data\Step.wav", 0
+StrUsedTime         db  "已用时间 : %03d 秒", 0
+StrUsedStep         db  "已走步数 : %03d 步", 0
+StrIsFinish         db  "恭喜你, 成功完成!", 0
+StrAuthor           db  "< 05071217 刘泽围 >", 0
+
+FontName    db  "宋体", 0   ; 字体名称
+
+TimerId     dd  679 ; This is lucky number ^_^
+
+.data?
+CurPicture  dd      ?           ; 当前图片
+CurBlocks   db      18 dup(?)   ; 当前游戏面板子区域中子图索引数组 3 行 * 6 列
+UsedTime    dd      ?           ; 当前图片已用时间, 单位 : 秒
+UsedStep    dd      ?           ; 当前图片已走步数
+IsFinish    dd      ?           ; 当前图片是否已经完成
+
+PictureDc   HDC     ?   ; 游戏原图设备环境
+PictureBM   HBITMAP ?   ; 游戏原图位图句柄
+BackClr     dd      ?   ; 窗体背景颜色
+FrameClr    dd      ?   ; 图片边框颜色
+LightClr    dd      ?   ; 高光笔触颜色
+ShadowClr   dd      ?   ; 阴影笔触颜色
+
+FontHdl     HFONT   ?   ; 字体
+FontFtClr   dd      ?   ; 字体前景色
+FontBkClr   dd      ?   ; 字体背景色
+
+NormalCursor    HCURSOR ?   ; 普通光标
+FingerCursor    HCURSOR ?   ; 手指光标
+
+
+;*******************************************************************************
+; 代码段
+;*******************************************************************************
+.code
+
+;-------------------------------------------------------------------------------
+; 在 [ min, max ] 区间上生成一个随机数
+; RandSeed = ( RandSeed * 23 + 7 ) % ( max - min + 1 )
+;-------------------------------------------------------------------------------
+RandomNumber proc min:DWORD, max:DWORD
+    invoke GetTickCount
+    mov ecx, 23
+    mul ecx
+    add eax, 7
+    mov ecx, max
+    sub ecx, min
+    inc ecx
+    xor edx, edx
+    div ecx
+    add edx, min
+    mov eax, edx
+    ret
+RandomNumber endp
+
+;-------------------------------------------------------------------------------
+; 以第 CurPicture 张图片开始一局游戏
+;-------------------------------------------------------------------------------
+StartPicture proc uses ebx edi, isNewPicture:BOOL
+    local filename[256] : byte
+    local filerror[256] : byte
+    local blockTmp[18] : byte
+    local blockCnt : byte
+
+    ;
+    ; 得到本局位图图片的句柄
+    ;
+    .if PictureBM
+        invoke DeleteObject, PictureBM
+    .endif
+
+    invoke wsprintf, addr filename, offset StrPictureName, CurPicture
+    invoke LoadImage, NULL, addr filename, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE
+    
+    .if ( !eax )
+        invoke wsprintf, addr filerror, offset StrPictureError, addr filename
+        invoke MessageBox, MainWndHdl, addr filerror, offset StrMessageBoxError,
+               MB_OK or MB_ICONSTOP or MB_APPLMODAL
+        invoke ExitProcess, 0
+    .endif
+    
+    mov PictureBM, eax
+    invoke SelectObject, PictureDc, PictureBM
+    
+    ;
+    ; 随机地将原图打散成 3 行 6 列 共 18 块, 将打散后的编号存到 CurBlocks 数组里
+    ;
+    ; 随机打散的方法为 :
+    ;   0、初始状态 N = 17, M = 0, r = ?
+    ;   1、将原图就地划分成 N 个子图, 顺序编号为 0 到 N, 将其看成一线性队列
+    ;   2、在 [0,N] 区间上生成一随机数 r, 将子图队列中第 r 号取出
+    ;   3、将编号 r 存到 CurBlocks 数组第 M 号单元
+    ;   4、N = N -1, M = M + 1, 回到第 1 步
+    ;
+    xor ecx, ecx
+    .while ecx < 17
+        mov blockTmp[ ecx ], 1
+        inc ecx
+    .endw
+    
+    mov blockCnt, 17
+    mov ebx, offset CurBlocks
+    .while blockCnt > 0
+        xor eax, eax
+        mov al, blockCnt
+        dec eax
+        mov edi, eax
+        invoke RandomNumber, 0, eax                                                    
+        xor ecx, ecx
+        xor edx, edx
+        .while ecx < 17
+            .if blockTmp[ ecx ] == 1                
+                .if edx == eax
+                    mov blockTmp[ ecx ], 0
+                    mov [ebx][edi], cl
+                    dec blockCnt
+                    .break
+                .endif
+                inc edx    
+            .endif
+            inc ecx
+        .endw
+    .endw
+    
+    ; 游戏面板最后一个子区置为空, 为子图移动腾出空位
+    mov al, -1
+    mov [ebx][17], al
+    
+    mov UsedTime, 0
+    mov UsedStep, 0
+    mov IsFinish, FALSE        
+        
+    ; 迫使游戏重绘
+    invoke InvalidateRect, MainWndHdl, NULL, FALSE
+    
+    ; 播放子图重列声音
+    .if isNewPicture == FALSE
+        invoke PlaySound, offset StrRestartSound, AppInstance, SND_FILENAME or SND_ASYNC
+    .endif
+    
+    ret
+StartPicture endp
+
+;-------------------------------------------------------------------------------
+; 绘制一帧游戏
+;-------------------------------------------------------------------------------
+DrawGame proc uses ebx esi, hdc:HDC
+    local oldPen:HPEN
+    local oldBrush:HBRUSH
+    local oldBkMode:DWORD
+    local rect:RECT
+    local dstRow:byte
+    local dstCol:byte
+    local srcRow:byte
+    local srcCol:byte
+    local dstX:DWORD
+    local dstY:DWORD
+    local srcX:DWORD
+    local srcY:DWORD
+    local strX:DWORD
+    local strY:DWORD
+    local strUsedTime[32]:byte
+    local strUsedStep[32]:byte    
+
+    ;
+    ; 选择笔触 / 画刷到设备环境
+    ;
+    invoke GetStockObject, DC_PEN
+    invoke SelectObject, hdc, eax
+    mov oldPen, eax    
+    invoke GetStockObject, DC_BRUSH
+    invoke SelectObject, hdc, eax
+    mov oldBrush, eax
+    
+	;
+    ; 绘制游戏主面板的下凹效果
+    ;
+    mov eax, GameOrgX
+    mov ecx, GameOrgY
+    mov rect.left, eax
+    sub rect.left, 3
+    mov rect.top, ecx
+    sub rect.top, 3
+    mov rect.right, eax
+    add rect.right, 303
+    mov rect.bottom, ecx
+    add rect.bottom, 152
+    
+    ; 设置阴影笔触颜色             
+    invoke SetDCPenColor, hdc, ShadowClr    
+
+    ; 绘制左边 / 上边
+    invoke MoveToEx, hdc, rect.left, rect.bottom, NULL            
+    invoke LineTo, hdc, rect.left, rect.top            
+    invoke LineTo, hdc, rect.right, rect.top
+    
+    ; 设置高光笔触颜色
+    invoke SetDCPenColor, hdc, LightClr
+    
+    ; 绘制右边 / 下边
+    invoke LineTo, hdc, rect.right, rect.bottom    
+    sub rect.left, 1
+    invoke LineTo, hdc, rect.left, rect.bottom
+            
+    ;
+    ; 顺序遍历游戏主面板各子区, 绘制打散的子图及其立体效果( 棱上高光与阴影 )
+    ;
+    mov ebx, offset CurBlocks
+    xor esi, esi
+    xor eax, eax
+    mov ecx, 6
+    .while esi < 18          
+        ;
+        ; 计算当前区域在目的设备环境(游戏主面板)上的坐标:
+        ;   dstRow = 区号 / 6, dstCol = 区号 % 6
+        ;   dstX = GameOrgX + dstCol * 50
+        ;   dstY = GameOrgY + dstRow * 50
+        ;
+        mov eax, esi
+        div cl
+        mov dstRow, al
+        mov dstCol, ah 
+			       
+        xor eax, eax
+        mov eax, 50
+        mul dstCol
+        add eax, GameOrgX
+        mov dstX, eax
+        
+        xor eax, eax
+        mov eax, 50
+        mul dstRow
+        add eax, GameOrgY
+        mov dstY, eax
+        
+        ;
+        ; 计算当前区域所放置的子图在后台设备环境(游戏原图)上的坐标
+        ; 当该区域放置有子图时, 标记为该子图在原图中的序号
+        ; 当该区域未放置子图时, 标记为 -1
+        ;
+        ;   srcRow = 序号 / 6, srcCol = 序号 % 6
+        ;   srcX = 0 + srcCol * 50
+        ;   srcY = 0 + srcRow * 50
+        ;
+        ; 寄存器使用约定:
+        ;   eax, ecx, edx 为调用者寄存器, 由调用者保护
+        ;   ebx, esi, edi 为被调用者寄存器, 由被调用者保护
+        ;
+        push ecx
+        xor eax, eax
+        mov al, [ebx][esi]
+        
+        ; 如果当前区域放置有子图
+        .if al != -1          
+            div cl
+            mov srcRow, al
+            mov srcCol, ah
+            
+            xor eax, eax
+            mov eax, 50
+            mul srcCol
+            mov srcX, eax
+            
+            xor eax, eax
+            mov eax, 50
+            mul srcRow
+            mov srcY, eax
+
+            ; 将子图从原图拷贝到当前区域
+            invoke BitBlt, hdc, dstX, dstY, 50, 50, PictureDc, srcX, srcY, SRCCOPY
+            
+            ;
+            ; 绘制棱上高光与阴影
+            ;
+            mov eax, dstX
+            mov ecx, dstY
+            mov rect.left, eax
+            mov rect.top, ecx
+            mov rect.right, eax
+            add rect.right, 49
+            mov rect.bottom, ecx
+            add rect.bottom, 49
+            
+            ; 设置高光笔触颜色          
+            invoke SetDCPenColor, hdc, LightClr    
+
+            ; 绘制左边 / 上边
+            invoke MoveToEx, hdc, rect.left, rect.bottom, NULL            
+            invoke LineTo, hdc, rect.left, rect.top            
+            invoke LineTo, hdc, rect.right, rect.top
+            
+            ; 设置阴影笔触颜色
+            invoke SetDCPenColor, hdc, ShadowClr
+            
+            ; 绘制右边 / 下边
+            invoke LineTo, hdc, rect.right, rect.bottom    
+            sub rect.left, 1
+            invoke LineTo, hdc, rect.left, rect.bottom
+        
+        ; 如果当前区域未放置子图
+        .else
+            mov eax, dstX
+            mov ecx, dstY
+            mov rect.left, eax
+            mov rect.top, ecx
+            mov rect.right, eax
+            add rect.right, 50
+            mov rect.bottom, ecx
+            add rect.bottom, 50            
+            
+            ; 设置窗体背景笔触 / 画刷颜色
+            invoke SetDCPenColor, hdc, BackClr
+            invoke SetDCBrushColor, hdc, BackClr
+    
+            ; 填充该区域为窗体背景颜色
+            invoke Rectangle, hdc, rect.left, rect.top, rect.right, rect.bottom
+        .endif
+        
+        pop ecx
+        inc esi
+    .endw   
+    
+    ;
+    ; 绘制原图及边框, 宽高缩放为原图的一半大小
+    ;
+    invoke StretchBlt, hdc, StatOrgX, StatOrgY, 150, 75,
+           PictureDc, 0, 0, 300, 150, SRCCOPY   
+    
+    mov eax, StatOrgX
+    mov ecx, StatOrgY
+    mov rect.left, eax
+    mov rect.top, ecx
+    mov rect.right, eax
+    add rect.right, 149
+    mov rect.bottom, ecx
+    add rect.bottom, 74
+            
+    ; 设置边框笔触颜色
+    invoke SetDCPenColor, hdc, FrameClr
+
+    ; 绘制边框
+    invoke MoveToEx, hdc, rect.left, rect.bottom, NULL            
+    invoke LineTo, hdc, rect.left, rect.top            
+    invoke LineTo, hdc, rect.right, rect.top
+    invoke LineTo, hdc, rect.right, rect.bottom
+    invoke LineTo, hdc, rect.left, rect.bottom
+    
+    ;
+    ; 绘制已用时间 / 已走步数及文字阴影效果
+    ;
+    mov eax, StatOrgX
+    mov ecx, StatOrgY
+    add eax, 90
+    add ecx, 88
+    mov rect.left, eax
+    mov rect.top, ecx
+    mov rect.right, eax
+    add rect.right, 21
+    mov rect.bottom, ecx
+    add rect.bottom, 36
+    
+    ; 设置窗体背景笔触 / 画刷颜色
+    invoke SetDCPenColor, hdc, BackClr
+    invoke SetDCBrushColor, hdc, BackClr  
+    
+    ; 填充该区域为窗体背景颜色, 即覆盖上一帧该区域处残留文字
+    invoke Rectangle, hdc, rect.left, rect.top, rect.right, rect.bottom
+            
+    mov eax, StatOrgX
+    mov ecx, StatOrgY
+    mov strX, eax
+    mov strY, ecx
+    
+    ; 设置字体 / 背景模式
+    invoke SelectObject, hdc, FontHdl    
+    invoke SetBkMode, hdc, TRANSPARENT
+    mov oldBkMode, eax
+    
+    ; 绘制已用时间
+    add strX, 26
+    add strY, 87
+    invoke wsprintf, addr strUsedTime, offset StrUsedTime, UsedTime
+    invoke SetTextColor, hdc, FontBkClr
+    invoke TextOut, hdc, strX, strY, addr strUsedTime, 17
+    add strY, 2
+    invoke SetTextColor, hdc, FontFtClr
+    invoke TextOut, hdc, strX, strY, addr strUsedTime, 17
+    
+    ; 绘制已走步数
+    add strY, 22 
+    invoke wsprintf, addr strUsedStep, offset StrUsedStep, UsedStep
+    invoke SetTextColor, hdc, FontBkClr
+    invoke TextOut, hdc, strX, strY, addr strUsedStep, 17
+    add strY, 2
+    invoke SetTextColor, hdc, FontFtClr
+    invoke TextOut, hdc, strX, strY, addr strUsedStep, 17
+    
+    ; 绘制学号学名
+    sub strX, 6
+    add strY, 22
+    invoke SetTextColor, hdc, FontBkClr
+    invoke TextOut, hdc, strX, strY, offset StrAuthor, 19
+    add strY, 2
+    invoke SetTextColor, hdc, FontFtClr
+    invoke TextOut, hdc, strX, strY, offset StrAuthor, 19       
+    
+    invoke SetBkMode, hdc, oldBkMode
+    invoke SelectObject, hdc, oldBrush
+    invoke SelectObject, hdc, oldPen
+    
+    ret
+DrawGame endp
+
+;-------------------------------------------------------------------------------
+; 计算鼠标所指子区的区号及该区域内子图可移向的新的子区的区号
+;-------------------------------------------------------------------------------
+TranMousePos proc uses ebx, posX:DWORD, posY:DWORD, pOldId:DWORD, pNewId:DWORD
+    local edgeRect:RECT
+    local row:byte
+    local col:byte
+    
+    ; 初始化原 / 新区号为 -1
+    mov ebx, pOldId
+    mov byte ptr [ebx], -1
+    mov ebx, pNewId
+    mov byte ptr [ebx], -1
+        
+    ; 计算整个游戏面板边界范围
+    mov eax, GameOrgX
+    mov edgeRect.left, eax
+    add eax, 300
+    mov edgeRect.right, eax
+    mov eax, GameOrgY
+    mov edgeRect.top, eax
+    add eax, 150
+    mov edgeRect.bottom, eax
+
+    ; 如果不在游戏面板边界范围内直接返回, [ 0, edgeRect.right ), [ 0, edgeRect.bottom )
+    mov eax, posX
+    mov ecx, posY
+    .if ( eax < edgeRect.left || eax >= edgeRect.right \
+          || ecx < edgeRect.top || ecx >= edgeRect.bottom )        
+        ret
+    .endif
+    
+    ;
+    ; 计算鼠标所指子区的行列号及其区号
+    ;
+    ;   row = ( posY - edgeRect.top ) / 40
+    ;   col = ( posX - edgeRect.left ) / 40 
+    ;   区号 = row * 7 + col
+    ;
+    mov ecx, 50
+    
+    mov eax, posY
+    sub eax, edgeRect.top
+    div cl
+    mov row, al
+    
+    mov eax, posX
+    sub eax, edgeRect.left
+    div cl
+    mov col, al
+    
+    mov ecx, 6
+    xor eax, eax
+    mov al, row
+    mul cl
+    add al, col
+    mov ebx, pOldId
+    mov byte ptr [ebx], al
+    
+    ;
+    ; 依次判断其左上右下的子区是否为空, 如果为空则表明可移动
+    ;
+    mov ebx, offset CurBlocks
+    mov ecx, 6
+    xor edx, edx
+    
+    ; 左边
+    .if col > 0
+        xor eax, eax        
+        mov al, row
+        mul cl
+        add al, col
+        dec al
+        mov dl, [ebx][eax]
+        .if dl == -1
+            mov ebx, pNewId
+            mov byte ptr [ebx], al
+            ret
+        .endif
+    .endif
+    
+    ; 上边
+    .if row > 0
+        xor eax, eax
+        mov al, row
+        dec al
+        mul cl
+        add al, col
+        mov dl, [ebx][eax]
+        .if dl == -1
+            mov ebx, pNewId
+            mov byte ptr [ebx], al
+            ret
+        .endif
+    .endif
+    
+    ; 右边
+    .if col < 5
+        xor eax, eax
+        mov al, row
+        mul cl
+        add al, col
+        inc al
+        mov dl, [ebx][eax]
+        .if dl == -1
+            mov ebx, pNewId
+            mov byte ptr [ebx], al
+            ret
+        .endif
+    .endif
+    
+    ; 下边
+    .if row < 2
+        xor eax, eax
+        mov al, row
+        inc al
+        mul cl
+        add al, col
+        mov dl, [ebx][eax]
+        .if dl == -1
+            mov ebx, pNewId
+            mov byte ptr [ebx], al
+            ret
+        .endif
+    .endif
+    
+    ; 左 / 上 / 右 / 下子区均非空, 当前子区域内子图不可移动
+    mov ebx, pNewId
+    mov byte ptr [ebx], -1
+
+    ret
+TranMousePos endp
+
+;-------------------------------------------------------------------------------
+; 处理游戏鼠标移动
+;-------------------------------------------------------------------------------
+DealMouseMove proc posX:DWORD, posY:DWORD
+    local oldId:byte
+    local newId:byte    
+    ;
+    ; 判断鼠标所指子区内的子图是否可移动
+    ; 如果该子区内子图可移动则显示手指光标, 否则显示普通光标
+    ;
+    invoke TranMousePos, posX, posY, addr oldId, addr newId
+        
+    .if newId != -1
+        invoke GetCursor
+        .if eax != FingerCursor
+            invoke SetCursor, FingerCursor
+        .endif
+    .else
+        invoke GetCursor
+        .if eax != NormalCursor
+            invoke SetCursor, NormalCursor
+        .endif
+    .endif        
+     
+    ret
+DealMouseMove endp
+
+;-------------------------------------------------------------------------------
+; 处理游戏鼠标单击
+;-------------------------------------------------------------------------------
+DealMouseClick proc uses ebx, posX:DWORD, posY:DWORD
+    local oldId:byte
+    local newId:byte
+    ;
+    ; 判断鼠标所指子区内的图片块是否可移动
+    ; 如果该子区内子图可移动则将子图移动到新的子区
+    ;
+    invoke TranMousePos, posX, posY, addr oldId, addr newId
+
+    .if newId != -1
+        xor eax, eax
+        xor ecx, ecx        
+        mov ebx, offset CurBlocks        
+        mov cl, oldId
+        mov al, [ebx+ecx]
+        mov byte ptr [ebx+ecx], -1
+        mov cl, newId
+        mov [ebx+ecx], al
+        
+        ; 已走步数加 1
+        inc UsedStep                
+        .if UsedStep > 999
+            mov UsedStep, 0
+        .endif
+        
+        ; 迫使游戏重绘
+        invoke InvalidateRect, MainWndHdl, NULL, FALSE 
+        invoke SetCursor, NormalCursor
+        
+        ; 播放子图移动声音
+        invoke PlaySound, offset StrStepSound, AppInstance, SND_FILENAME or SND_ASYNC
+        
+        ;
+        ; 判断是否完成
+        ;
+        xor ecx, ecx
+        .while ecx < 17
+            .break .if cl != [ebx+ecx]
+            inc ecx
+        .endw
+        
+        ; 如果前 17 块子图都移到了对应正确的位置, 则补上先前为腾出空位的第
+        ; 18 块子图( 编号为 17 ), 同时, 设置完成标志
+        .if ecx == 17
+            mov eax, 17
+            mov [ebx+ecx], al
+            mov eax, TRUE 
+            mov IsFinish, eax
+
+            invoke InvalidateRect, MainWndHdl, NULL, FALSE 
+            invoke MessageBox, MainWndHdl, offset StrIsFinish, offset StrMessageBoxInfo,
+                   MB_OK or MB_ICONINFORMATION or MB_APPLMODAL                       
+        .endif
+        
+    .endif
+    
+    ret
+DealMouseClick endp
+
+;-------------------------------------------------------------------------------
+; 处理游戏计时器信号
+;-------------------------------------------------------------------------------
+DealTimerSignal proc timerId:DWORD    
+    mov eax, timerId
+    .if eax == TimerId && IsFinish == FALSE
+        
+        ; 已用时间加 1
+        inc UsedTime
+        .if UsedTime > 999
+            mov UsedTime, 0
+        .endif
+        
+        ; 迫使游戏重绘
+        invoke InvalidateRect, MainWndHdl, NULL, FALSE 
+        
+    .endif    
+    ret
+DealTimerSignal endp
+
+;-------------------------------------------------------------------------------
+; 初始化游戏
+;-------------------------------------------------------------------------------
+InitGame proc   
+    local hdc:HDC
+    
+    ; 初始化游戏数据
+    mov CurPicture, 1
+    mov UsedTime, 0
+    mov UsedStep, 0
+    mov IsFinish, FALSE
+    mov PictureBM, NULL       
+    
+    ; 初始游戏原图设备环境
+    invoke GetDC, MainWndHdl    
+    mov hdc, eax       
+    
+    invoke CreateCompatibleDC, hdc
+    .if ( !eax )
+        invoke MessageBox, MainWndHdl, offset StrHdcError, offset StrMessageBoxError,
+               MB_OK or MB_ICONSTOP or MB_APPLMODAL
+        invoke ExitProcess, 0
+    .endif
+    mov	PictureDc, eax
+    
+    invoke ReleaseDC, MainWndHdl, hdc
+    
+    ; 初始化颜色
+    invoke GetSysColor, COLOR_3DFACE
+    mov BackClr, eax
+    mov eax, 0h
+    mov FrameClr, eax    
+    invoke GetSysColor, COLOR_3DHIGHLIGHT
+    mov LightClr, eax
+    invoke GetSysColor, COLOR_3DDKSHADOW
+    mov ShadowClr, eax
+    mov eax, 0h
+    mov FontFtClr, eax
+    mov eax, 0ffffffh
+    mov FontBkClr, eax
+
+    ; 初始化计时器
+    invoke SetTimer, MainWndHdl, TimerId, 1000, NULL
+    
+    ; 初始化字体    
+    invoke CreateFont, 12, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET, \ 
+                       OUT_CHARACTER_PRECIS, CLIP_DEFAULT_PRECIS, \ 
+                       DEFAULT_QUALITY, FF_DONTCARE, \ 
+                       offset FontName
+    mov FontHdl, eax        
+    
+    ; 初始化鼠标光标
+    invoke LoadCursor, AppInstance, IDC_NORMAL
+    mov NormalCursor, eax
+    invoke LoadCursor, AppInstance, IDC_FINGER
+    mov FingerCursor, eax        
+
+    ret
+InitGame endp
+
+;-------------------------------------------------------------------------------
+; 结束游戏
+;-------------------------------------------------------------------------------
+ExitGame proc
+
+    ; 释放游戏资源  
+    .if PictureDc
+        invoke DeleteDC, PictureDc
+    .endif
+    .if PictureBM
+        invoke DeleteObject, PictureBM
+    .endif
+    .if TimerId
+        invoke KillTimer, MainWndHdl, TimerId
+    .endif
+    .if FontHdl
+        invoke DeleteObject, FontHdl
+    .endif
+
+    ret
+ExitGame endp
+
+;-------------------------------------------------------------------------------
+; 关于对话框过程
+;-------------------------------------------------------------------------------
+AboutDlgProc proc hWnd:HWND, msg:UINT, wParam:WPARAM, lParam:LPARAM
+    .if	msg == WM_CLOSE
+        invoke EndDialog, hWnd, NULL
+    .elseif	msg == WM_INITDIALOG
+        invoke	LoadIcon, AppInstance, IDI_APP
+        invoke	SendMessage, hWnd, WM_SETICON, ICON_BIG, eax
+    .elseif msg == WM_COMMAND
+        mov	eax, wParam
+        .if	ax == IDOK
+            invoke	EndDialog, hWnd, NULL
+        .endif
+    .else
+        mov	eax, FALSE
+        ret
+    .endif
+    
+    xor lParam, 0h
+    mov	eax, TRUE
+    ret
+AboutDlgProc endp
+
+;-------------------------------------------------------------------------------
+; 主窗口过程
+;-------------------------------------------------------------------------------
+MainWndProc proc hWnd:HWND, msg:UINT, wParam:WPARAM, lParam:LPARAM
+    local paintStruct:PAINTSTRUCT 
+    
+    ;
+    ; 窗口创建时进行相关初始化
+    ;
+    .if msg == WM_CREATE
+        mov eax, hWnd
+        mov MainWndHdl, eax
+        invoke InitGame
+        invoke StartPicture, TRUE
+        
+    ;
+    ; 菜单命令
+    ;
+    .elseif msg == WM_COMMAND
+        mov eax, wParam            
+        .if ax == IDM_PREV_PICTURE
+            .if CurPicture == 1
+                mov ecx, TotalPicture
+                mov CurPicture, ecx
+            .else
+                dec CurPicture                    
+            .endif
+            invoke StartPicture, TRUE    
+        .elseif ax == IDM_NEXT_PICTURE
+            mov ecx, TotalPicture
+            .if CurPicture == ecx
+                mov CurPicture, 1
+            .else
+                inc CurPicture                
+            .endif
+            invoke StartPicture, TRUE    
+        .elseif ax == IDM_RESTART_PICTURE
+            invoke MessageBox, hWnd, offset StrRestartPicture, offset StrMessageBoxInfo,
+                   MB_OKCANCEL or MB_ICONQUESTION or MB_APPLMODAL
+            .if eax == IDOK
+                invoke StartPicture, FALSE
+            .endif            
+        .elseif ax == IDM_ABOUT
+            invoke DialogBoxParam, AppInstance, offset IDD_ABOUT, hWnd, \
+                   offset AboutDlgProc, NULL                   
+        .elseif ax == IDM_EXIT
+            invoke DestroyWindow, hWnd            
+        .endif
+           
+    ;
+    ; 鼠标移动消息, 根据鼠标所处游戏面板子区动态改变鼠标光标
+    ;
+    .elseif msg == WM_MOUSEMOVE
+        mov eax, lParam
+        and eax, 0FFFFh
+        mov ecx, lParam
+        shr ecx, 16
+        invoke DealMouseMove, eax, ecx
+    
+    ;
+    ; 鼠标单击消息, 根据鼠标所处游戏面板子区移动子图
+    ;
+    .elseif msg == WM_LBUTTONDOWN 
+        mov eax, lParam 
+        and eax, 0FFFFh
+        mov ecx, lParam
+        shr ecx, 16
+        invoke DealMouseClick, eax, ecx        
+    
+    ;
+    ; 计时器消息, 为游戏计时
+    ;
+    .elseif msg == WM_TIMER
+        mov	eax, wParam
+        invoke DealTimerSignal, eax
+            
+    ;
+    ; 窗口重绘消息, 重绘一帧游戏
+    ;
+    .elseif msg == WM_PAINT
+        invoke BeginPaint, hWnd, addr paintStruct
+        invoke DrawGame, eax
+        invoke EndPaint, hWnd, addr paintStruct   
+                     
+    ;
+    ; 工具条提示消息
+    ;
+    .elseif msg == WM_NOTIFY
+        mov	ecx, lParam
+        .if	[ ecx + NMHDR.code ] == TTN_NEEDTEXT
+            assume ecx : ptr TOOLTIPTEXT
+            mov	eax, [ecx].hdr.idFrom
+            mov	[ecx].lpszText, eax
+            push AppInstance
+            pop	[ecx].hinst
+            assume ecx : nothing
+        .endif   
+             
+    ;
+    ; 结束游戏 / 系统默认窗口处理过程
+    ;
+    .elseif msg == WM_DESTROY    
+        invoke ExitGame
+        invoke PostQuitMessage, NULL 
+    .else
+        invoke DefWindowProc, hWnd, msg, wParam, lParam
+        ret
+    .endif
+    
+    xor eax, eax
+    ret
+MainWndProc endp
+
+;-------------------------------------------------------------------------------
+; 入口代码
+;-------------------------------------------------------------------------------
+start:
+    ;
+    ; 初始化
+    ;
+    invoke InitCommonControls
+    invoke GetModuleHandle, NULL
+    mov AppInstance, eax    
+    invoke GetCommandLine
+    mov AppCmdLine, eax    
+    
+    ;
+    ; 注册窗口类
+    ;
+    mov MainWndCls.cbSize, sizeof WNDCLASSEX
+    mov MainWndCls.style, CS_HREDRAW or CS_VREDRAW
+    mov MainWndCls.lpfnWndProc, offset MainWndProc
+    mov MainWndCls.lpszClassName, offset AppName
+    mov MainWndCls.hbrBackground, COLOR_BTNFACE + 1
+    mov MainWndCls.cbClsExtra, NULL
+    mov MainWndCls.cbWndExtra, NULL
+    mov eax, AppInstance
+    mov MainWndCls.hInstance, eax
+    invoke LoadIcon, AppInstance, IDI_APP
+    mov MainWndCls.hIcon, eax
+    mov MainWndCls.hIconSm, eax
+    mov MainWndCls.hCursor, NULL
+    invoke RegisterClassEx, offset MainWndCls
+    
+    ;
+    ; 在屏幕正中心创建窗口
+    ;
+        
+    ; 根据期望的客户区大小计算所需创建的窗口大小
+    ; 用以自动适应各种系统风格, 比如系统设置为 Windows Xp 或 Windows 经典风格等
+    mov eax, ClientRect.left
+    mov MainWndRect.left, eax
+    mov eax, ClientRect.top
+    mov MainWndRect.top, eax
+    mov eax, ClientRect.right
+    mov MainWndRect.right, eax
+    mov eax, ClientRect.bottom
+    mov MainWndRect.bottom, eax
+    mov MainWndStyle, WS_CAPTION or WS_MINIMIZEBOX or WS_SYSMENU or WS_BORDER
+    invoke AdjustWindowRect, offset MainWndRect, MainWndStyle, TRUE
+    mov eax, MainWndRect.right
+    sub eax, MainWndRect.left
+    mov MainWndWidth, eax
+    mov eax, MainWndRect.bottom
+    sub eax, MainWndRect.top
+    mov MainWndHeight, eax
+    
+    ; 计算屏幕中心位置
+    invoke GetSystemMetrics, SM_CXSCREEN
+    shr eax, 1
+    mov ecx, MainWndWidth
+    shr ecx, 1
+    sub eax, ecx
+    mov MainWndPosX, eax    
+    invoke GetSystemMetrics, SM_CYSCREEN
+    shr eax, 1
+    mov ecx, MainWndHeight
+    shr ecx, 1
+    sub eax, ecx
+    mov MainWndPosY, eax
+    
+    ; 加载菜单
+    invoke LoadMenu, AppInstance, IDM_APP
+    
+    ; 创建窗口
+    invoke CreateWindowEx, NULL, offset AppName, offset AppName, MainWndStyle, \
+           MainWndPosX, MainWndPosY, MainWndWidth, MainWndHeight, \
+           NULL, eax, AppInstance, NULL
+    
+    ;
+    ; 创建工具条 / 加载光标 / 显示更新窗口
+    ;
+    invoke CreateToolbarEx, MainWndHdl, \
+           WS_VISIBLE or TBSTYLE_FLAT or TBSTYLE_TOOLTIPS, \
+           NULL, TBButtonNum, AppInstance, IDB_TOOLBAR, offset TBButton, \
+           TBButtonNum, 20, 20, 20, 20, sizeof TBBUTTON
+    
+    invoke LoadCursor, AppInstance, IDC_NORMAL
+    invoke SetCursor, eax
+          
+    invoke ShowWindow, MainWndHdl, SW_SHOWNORMAL
+    invoke UpdateWindow, MainWndHdl
+        
+    ;
+    ; 程序消息循环
+    ;
+    .while TRUE
+        invoke GetMessage, offset MainWndMsg, NULL, 0, 0
+        .break .if eax == 0
+        invoke TranslateMessage, offset MainWndMsg
+        invoke DispatchMessage, offset MainWndMsg
+    .endw
+    
+    invoke ExitProcess, MainWndMsg.wParam
+end start

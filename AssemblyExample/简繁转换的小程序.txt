@@ -1,0 +1,80 @@
+【原创】简繁转换的小程序..(纯ASM代码)      
+
+--------------------------------------------------------------------------------
+最近在学WIN32ASM..下面这个程序是之前练手写的.很简单.呵呵 高手不要见笑.献给象我一样刚进ASM的同学.
+源代码如下:
+(附件包含了源码工程文件及编译后的程序)
+
+
+代码:
+;简体《-》繁体互转程序
+;Code by sLtYJ(4stone)
+;2007.1.15
+
+.386
+.Model Flat, StdCall
+Option Casemap :None
+
+Include windows.inc
+Include user32.inc
+Include kernel32.inc
+Include gdi32.inc
+
+includelib gdi32.lib
+IncludeLib user32.lib
+IncludeLib kernel32.lib
+
+  
+  DlgProc PROTO :DWORD,:DWORD,:DWORD,:DWORD
+  
+.const
+  DLG_MAIN equ 100
+  TXT1    equ 1002
+  TXT2    equ 1001
+  
+.data?
+  hInstance dd ?
+  txt1Buffer   db  1024 dup(?)
+  txt2Buffer   db  1024 dup(?)
+  txtResault1  db 1024 dup(?)
+  txtResault2  db 1024 dup(?)
+  
+.CODE
+
+START:
+  invoke GetModuleHandle,NULL
+  mov hInstance,eax
+  invoke DialogBoxParam,hInstance,DLG_MAIN,0,offset DlgProc,0
+  invoke ExitProcess,0
+
+DlgProc proc hWnd,uMsg,wParam,lParam
+  .if uMsg==WM_INITDIALOG
+    invoke LoadIcon,hInstance,100
+    invoke SendMessage,hWnd,WM_SETICON,ICON_SMALL,eax
+    
+  .elseif uMsg==WM_COMMAND
+    mov eax,wParam
+    and eax,0ffffh
+    .if eax==1
+      invoke GetDlgItemText,hWnd,TXT1,addr txt1Buffer,512
+      invoke lstrlen,addr txt1Buffer
+      invoke LCMapString,804h,4000000h,addr txt1Buffer,eax,addr txtResault1,eax
+      invoke SetDlgItemText,hWnd,TXT2,addr txtResault1
+    .elseif eax==2
+      invoke GetDlgItemText,hWnd,TXT2,addr txt2Buffer,512
+      invoke lstrlen,addr txt2Buffer
+      invoke LCMapString,804h,2000000h,addr txt2Buffer,eax,addr txtResault2,eax
+      invoke SetDlgItemText,hWnd,TXT1,addr txtResault2
+    .endif
+  .elseif uMsg==WM_CLOSE
+    invoke EndDialog,hWnd,wParam
+  .else
+    mov eax,FALSE
+    ret
+  .endif
+  mov eax,TRUE
+  ret
+DlgProc endp
+
+END START
+ 

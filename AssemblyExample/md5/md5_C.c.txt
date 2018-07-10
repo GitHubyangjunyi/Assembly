@@ -1,0 +1,269 @@
+
+
+/*********************************
+*-----MD5加密算法之C语言版-------*
+*           版权所有             *
+*      转载请保留版权信息        *
+*       日期：2005-8-1           *
+*     作者：巴不豆[softbiao]     *
+*       QQ：275541298            *
+**********************************/
+
+#include<stdio.h>
+#include<string.h>
+
+#define F(X,Y,Z) ((X&Y)|(~X&Z))
+#define G(X,Y,Z) ((X&Z)|(Y&~Z))
+#define H(X,Y,Z) (X^Y^Z)
+#define I(X,Y,Z) (Y^(X|~Z))
+
+#define R1(A,B,C,D,X,S,T)  B+((A+F(B,C,D)+X+T)<<S|(A+F(B,C,D)+X+T)>>(32-S))
+#define R2(A,B,C,D,X,S,T)  B+((A+G(B,C,D)+X+T)<<S|(A+G(B,C,D)+X+T)>>(32-S))
+#define R3(A,B,C,D,X,S,T)  B+((A+H(B,C,D)+X+T)<<S|(A+H(B,C,D)+X+T)>>(32-S))
+#define R4(A,B,C,D,X,S,T)  B+((A+I(B,C,D)+X+T)<<S|(A+I(B,C,D)+X+T)>>(32-S))
+
+void hex(unsigned long int k)
+{
+   unsigned long int hex[4];
+   int i;
+   for(i=0;i<4;i++)
+   {
+       hex[i]=k&0x00ff;
+       k>>=8;
+       printf("%02X",hex[i]);
+   }
+}
+
+void main(int argc,char *argv[])
+{
+   unsigned long int a,b,c,d,a0,b0,c0,d0;
+   int slen,wlen,i,j=4;
+   long int *X,r;
+   if(argc!=12)
+   {
+
+     slen=strlen(argv[1]);
+     wlen=(((slen+8)>>6)+1)<<4;
+     X=(long int *)malloc(sizeof(long int)); 
+   // printf("\n The result is: %d",sizeof(X));
+    //getch();
+
+     for(i=0;(i*4)<slen;i++)
+     {
+         X[i]=0;
+         for(j=0;(j<4)&&((i*4+j)<slen);j++)
+         {
+            switch(j)
+            {
+              case 2:  r=argv[1][i*4+j]<<8;r<<=8;break;
+              case 3:  r=argv[1][i*4+j]<<8;r<<=8;r<<=8;break;
+              default: r=argv[1][i*4+j]<<(j*8);break;
+            }
+            X[i]+=r;
+         }
+     }
+
+     if(j==4)
+        X[i++]=0x80;
+     else
+     {
+        switch(j)
+        {
+           case 2:  r=0x80L<<8;r<<=8;break;
+           case 3:  r=0x80L<<8;r<<=8;r<<=8;break;
+           default: r=0x80L<<(j*8);break;
+        }
+        X[i-1]+=r;
+     }
+     for(;i<wlen;i++)
+        X[i]=0;
+     X[wlen-2]=slen*8;
+
+     a = 0x67452301;
+     b = 0xefcdab89;
+     c = 0x98badcfe;
+     d = 0x10325476;
+     for (i = 0;i<wlen;i+=16)
+     {
+        a0=a;
+        b0=b;
+        c0=c;
+        d0=d;
+
+        a = R1(a, b, c, d, X[i+ 0], 7 , 0xd76aa478);
+        d = R1(d, a, b, c, X[i+ 1], 12, 0xe8c7b756);
+        c = R1(c, d, a, b, X[i+ 2], 17, 0x242070db);
+        b = R1(b, c, d, a, X[i+ 3], 22, 0xc1bdceee);
+        a = R1(a, b, c, d, X[i+ 4], 7 , 0xf57c0faf);
+        d = R1(d, a, b, c, X[i+ 5], 12, 0x4787c62a);
+        c = R1(c, d, a, b, X[i+ 6], 17, 0xa8304613);
+        b = R1(b, c, d, a, X[i+ 7], 22, 0xfd469501);
+        a = R1(a, b, c, d, X[i+ 8], 7 , 0x698098d8);
+        d = R1(d, a, b, c, X[i+ 9], 12, 0x8b44f7af);
+        c = R1(c, d, a, b, X[i+10], 17, 0xffff5bb1);
+        b = R1(b, c, d, a, X[i+11], 22, 0x895cd7be);
+        a = R1(a, b, c, d, X[i+12], 7 , 0x6b901122);
+        d = R1(d, a, b, c, X[i+13], 12, 0xfd987193);
+        c = R1(c, d, a, b, X[i+14], 17, 0xa679438e);
+        b = R1(b, c, d, a, X[i+15], 22, 0x49b40821);
+
+        a = R2(a, b, c, d, X[i+ 1], 5 , 0xf61e2562);
+        d = R2(d, a, b, c, X[i+ 6], 9 , 0xc040b340);
+        c = R2(c, d, a, b, X[i+11], 14, 0x265e5a51);
+        b = R2(b, c, d, a, X[i+ 0], 20, 0xe9b6c7aa);
+        a = R2(a, b, c, d, X[i+ 5], 5 , 0xd62f105d);
+        d = R2(d, a, b, c, X[i+10], 9 , 0x2441453);
+        c = R2(c, d, a, b, X[i+15], 14, 0xd8a1e681);
+        b = R2(b, c, d, a, X[i+ 4], 20, 0xe7d3fbc8);
+        a = R2(a, b, c, d, X[i+ 9], 5 , 0x21e1cde6);
+        d = R2(d, a, b, c, X[i+14], 9 , 0xc33707d6);
+        c = R2(c, d, a, b, X[i+ 3], 14, 0xf4d50d87);
+        b = R2(b, c, d, a, X[i+ 8], 20, 0x455a14ed);
+        a = R2(a, b, c, d, X[i+13], 5 , 0xa9e3e905);
+        d = R2(d, a, b, c, X[i+ 2], 9 , 0xfcefa3f8);
+        c = R2(c, d, a, b, X[i+ 7], 14, 0x676f02d9);
+        b = R2(b, c, d, a, X[i+12], 20, 0x8d2a4c8a);
+
+        a = R3(a, b, c, d, X[i+ 5], 4 , 0xfffa3942);
+        d = R3(d, a, b, c, X[i+ 8], 11, 0x8771f681);
+        c = R3(c, d, a, b, X[i+11], 16, 0x6d9d6122);
+        b = R3(b, c, d, a, X[i+14], 23, 0xfde5380c);
+        a = R3(a, b, c, d, X[i+ 1], 4 , 0xa4beea44);
+        d = R3(d, a, b, c, X[i+ 4], 11, 0x4bdecfa9);
+        c = R3(c, d, a, b, X[i+ 7], 16, 0xf6bb4b60);
+        b = R3(b, c, d, a, X[i+10], 23, 0xbebfbc70);
+        a = R3(a, b, c, d, X[i+13], 4 , 0x289b7ec6);
+        d = R3(d, a, b, c, X[i+ 0], 11, 0xeaa127fa);
+        c = R3(c, d, a, b, X[i+ 3], 16, 0xd4ef3085);
+        b = R3(b, c, d, a, X[i+ 6], 23, 0x4881d05);
+        a = R3(a, b, c, d, X[i+ 9], 4 , 0xd9d4d039);
+        d = R3(d, a, b, c, X[i+12], 11, 0xe6db99e5);
+        c = R3(c, d, a, b, X[i+15], 16, 0x1fa27cf8);
+        b = R3(b, c, d, a, X[i+ 2], 23, 0xc4ac5665);
+
+        a = R4(a, b, c, d, X[i+ 0], 6 , 0xf4292244);
+        d = R4(d, a, b, c, X[i+ 7], 10, 0x432aff97);
+        c = R4(c, d, a, b, X[i+14], 15, 0xab9423a7);
+        b = R4(b, c, d, a, X[i+ 5], 21, 0xfc93a039);
+        a = R4(a, b, c, d, X[i+12], 6 , 0x655b59c3);
+        d = R4(d, a, b, c, X[i+ 3], 10, 0x8f0ccc92);
+        c = R4(c, d, a, b, X[i+10], 15, 0xffeff47d);
+        b = R4(b, c, d, a, X[i+ 1], 21, 0x85845dd1);
+        a = R4(a, b, c, d, X[i+ 8], 6 , 0x6fa87e4f);
+        d = R4(d, a, b, c, X[i+15], 10, 0xfe2ce6e0);
+        c = R4(c, d, a, b, X[i+ 6], 15, 0xa3014314);
+        b = R4(b, c, d, a, X[i+13], 21, 0x4e0811a1);
+        a = R4(a, b, c, d, X[i+ 4], 6 , 0xf7537e82);
+        d = R4(d, a, b, c, X[i+11], 10, 0xbd3af235);
+        c = R4(c, d, a, b, X[i+ 2], 15, 0x2ad7d2bb);
+        b = R4(b, c, d, a, X[i+ 9], 21, 0xeb86d391);
+
+        a+=a0;
+        b+=b0;
+        c+=c0;
+        d+=d0;
+    }
+    printf("\n The result is: ");
+    hex(a);hex(b);hex(c);hex(d);
+    getch();
+   }
+}
+/*（当时写的时候没有写注释的习惯，所以看起来可能有点＠＿＠，呵呵，下面给出该算法的描述，摘子某个地方的忘记了．．．．）
+
+在一些初始化处理后，MD5以512位分组来处理输入文本，每一分组又划分为16个32位子分组。算法的输出由四个32位分组组成，将它们级联形成一个128位散列值。
+首先填充消息使其长度恰好为一个比512位的倍数仅小64位的数。填充方法是附一个1在消息后面，后接所要求的多个0，然后在其后附上64位的消息长度（填充前）。这两步的作用是使消息长度恰好是512位的整数倍（算法的其余部分要求如此），同时确保不同的消息在填充后不相同。
+四个32位变量初始化为：
+A=0x01234567
+B=0x89abcdef
+C=0xfedcba98
+D=0x76543210
+它们称为链接变量（chaining variable）
+接着进行算法的主循环，循环的次数是消息中512位消息分组的数目。
+将上面四个变量复制到别外的变量中：A到a，B到b，C到c，D到d。
+主循环有四轮（MD4只有三轮），每轮很相拟。第一轮进行16次操作。每次操作对a，b，c和d中的其中三个作一次非线性函数运算，然后将所得结果加上第四个变量，文本的一个子分组和一个常数。再将所得结果向右环移一个不定的数，并加上a，b，c或d中之一。最后用该结果取代a，b，c或d中之一。
+以一下是每次操作中用到的四个非线性函数（每轮一个）。
+F(X,Y,Z)=(X&Y)|((~X)&Z)
+G(X,Y,Z)=(X&Z)|(Y&(~Z))
+H(X,Y,Z)=X^Y^Z
+I(X,Y,Z)=Y^(X|(~Z))
+(&是与,|是或,~是非,^是异或)
+这些函数是这样设计的：如果X、Y和Z的对应位是独立和均匀的，那么结果的每一位也应是独立和均匀的。
+函数F是按逐位方式操作：如果X，那么Y，否则Z。函数H是逐位奇偶操作符。
+设Mj表示消息的第j个子分组（从0到15），<<<s表示循环左移s位，则四种操作为：
+FF(a,b,c,d,Mj,s,ti)表示a=b+((a+(F(b,c,d)+Mj+ti)<<<s)
+GG(a,b,c,d,Mj,s,ti)表示a=b+((a+(G(b,c,d)+Mj+ti)<<<s)
+HH(a,b,c,d,Mj,s,ti)表示a=b+((a+(H(b,c,d)+Mj+ti)<<<s)
+II(a,b,c,d,Mj,s,ti)表示a=b+((a+(I(b,c,d)+Mj+ti)<<<s)
+这四轮（64步）是：
+第一轮
+FF(a,b,c,d,M0,7,0xd76aa478)
+FF(d,a,b,c,M1,12,0xe8c7b756)
+FF(c,d,a,b,M2,17,0x242070db)
+FF(b,c,d,a,M3,22,0xc1bdceee)
+FF(a,b,c,d,M4,7,0xf57c0faf)
+FF(d,a,b,c,M5,12,0x4787c62a)
+FF(c,d,a,b,M6,17,0xa8304613)
+FF(b,c,d,a,M7,22,0xfd469501)
+FF(a,b,c,d,M8,7,0x698098d8)
+FF(d,a,b,c,M9,12,0x8b44f7af)
+FF(c,d,a,b,M10,17,0xffff5bb1)
+FF(b,c,d,a,M11,22,0x895cd7be)
+FF(a,b,c,d,M12,7,0x6b901122)
+FF(d,a,b,c,M13,12,0xfd987193)
+FF(c,d,a,b,M14,17,0xa679438e)
+FF(b,c,d,a,M15,22,0x49b40821)
+第二轮
+GG(a,b,c,d,M1,5,0xf61e2562)
+GG(d,a,b,c,M6,9,0xc040b340)
+GG(c,d,a,b,M11,14,0x265e5a51)
+GG(b,c,d,a,M0,20,0xe9b6c7aa)
+GG(a,b,c,d,M5,5,0xd62f105d)
+GG(d,a,b,c,M10,9,0x02441453)
+GG(c,d,a,b,M15,14,0xd8a1e681)
+GG(b,c,d,a,M4,20,0xe7d3fbc8)
+GG(a,b,c,d,M9,5,0x21e1cde6)
+GG(d,a,b,c,M14,9,0xc33707d6)
+GG(c,d,a,b,M3,14,0xf4d50d87)
+GG(b,c,d,a,M8,20,0x455a14ed)
+GG(a,b,c,d,M13,5,0xa9e3e905)
+GG(d,a,b,c,M2,9,0xfcefa3f8)
+GG(c,d,a,b,M7,14,0x676f02d9)
+GG(b,c,d,a,M12,20,0x8d2a4c8a)
+第三轮
+HH(a,b,c,d,M5,4,0xfffa3942)
+HH(d,a,b,c,M8,11,0x8771f681)
+HH(c,d,a,b,M11,16,0x6d9d6122)
+HH(b,c,d,a,M14,23,0xfde5380c)
+HH(a,b,c,d,M1,4,0xa4beea44)
+HH(d,a,b,c,M4,11,0x4bdecfa9)
+HH(c,d,a,b,M7,16,0xf6bb4b60)
+HH(b,c,d,a,M10,23,0xbebfbc70)
+HH(a,b,c,d,M13,4,0x289b7ec6)
+HH(d,a,b,c,M0,11,0xeaa127fa)
+HH(c,d,a,b,M3,16,0xd4ef3085)
+HH(b,c,d,a,M6,23,0x04881d05)
+HH(a,b,c,d,M9,4,0xd9d4d039)
+HH(d,a,b,c,M12,11,0xe6db99e5)
+HH(c,d,a,b,M15,16,0x1fa27cf8)
+HH(b,c,d,a,M2,23,0xc4ac5665)
+第四轮
+II(a,b,c,d,M0,6,0xf4292244)
+II(d,a,b,c,M7,10,0x432aff97)
+II(c,d,a,b,M14,15,0xab9423a7)
+II(b,c,d,a,M5,21,0xfc93a039)
+II(a,b,c,d,M12,6,0x655b59c3)
+II(d,a,b,c,M3,10,0x8f0ccc92)
+II(c,d,a,b,M10,15,0xffeff47d)
+II(b,c,d,a,M1,21,0x85845dd1)
+II(a,b,c,d,M8,6,0x6fa87e4f)
+II(d,a,b,c,M15,10,0xfe2ce6e0)
+II(c,d,a,b,M6,15,0xa3014314)
+II(b,c,d,a,M13,21,0x4e0811a1)
+II(a,b,c,d,M4,6,0xf7537e82)
+II(d,a,b,c,M11,10,0xbd3af235)
+II(c,d,a,b,M2,15,0x2ad7d2bb)
+II(b,c,d,a,M9,21,0xeb86d391)
+常数ti可以如下选择：
+在第i步中，ti是4294967296*abs(sin(i))的整数部分,i的单位是弧度。
+(2的32次方)
+所有这些完成之后，将A，B，C，D分别加上a，b，c，d。然后用下一分组数据继续运行算法，最后的输出是A，B，C和D的级联。*/

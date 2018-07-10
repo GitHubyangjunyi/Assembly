@@ -1,0 +1,166 @@
+;********************************************
+;Target:
+;不同文件间数据实时共享之消息传递法,
+;本程序为发送端.
+;Author: Lonkil lonkil_at_Gmail.com
+;Date: 2008-6-12
+;********************************************
+
+.386
+.model flat,stdcall
+option	casemap:none
+
+include	windows.inc
+include user32.inc
+include kernel32.inc
+include gdi32.inc
+include common.inc
+
+includelib user32.lib
+includelib kernel32.lib
+includelib gdi32.lib
+
+.data
+szTitleName	db "我是发送端",0
+szClassName	db "Send dialog",0
+szError		db "对不起，请先打开接收端",0
+szSetText_Data	db '我发送了WM_SETTEXT到接收端',0DH,0AH,0
+szCopyData_Data	db '我发送了WM_COPYDATA到接收端',0DH,0AH,0
+szFontName	db "宋体",0
+.data?
+hInstance	dd	?
+hBtn_SetText	HWND	?
+hBtn_CopyData	HWND	?
+hTargetWin	HWND	?
+.const
+IDM_BTN_SETTEXT		equ 1001
+IDM_BTN_COPYDATA	equ 1002
+
+.code
+
+;得到指定字符串的长度包括'\0'所占的长度
+_GetStringLen proc strPath:DWORD
+	mov edi,strPath
+	xor    eax,eax
+	mov ecx,eax
+	dec    ecx    ;用ecx进行计数
+	push ecx
+	cld
+	repne    scasb;当不满足zf = 0 && ecx != 0则结束统计
+	pop eax
+	sub eax,ecx
+	ret
+_GetStringLen endp
+
+;设定指控件字体
+_SetFont proc hWnd:HWND
+	local lf:LOGFONT
+	invoke RtlZeroMemory,addr lf, sizeof LOGFONT
+	mov lf.lfHeight,15
+	invoke CreateFontIndirect,addr lf
+	invoke SendMessage,hWnd,WM_SETFONT,eax,0
+	ret
+_SetFont endp
+
+;检测接收端是否打开
+_CheckTarget	proc
+	invoke	FindWindow, 0, CTEXT("我是接收端") 
+	mov	hTargetWin,	eax
+	.if hTargetWin == 0 
+		invoke	MessageBox,0,offset szError, CTEXT("出错"),0
+	.endif
+	ret
+_CheckTarget	endp
+
+;窗口回调函数
+_CallWnd 	proc	hwnd:HWND, msg:UINT, wParam:WPARAM, lParam:LPARAM
+	local	SendCDS:COPYDATASTRUCT
+	mov eax,msg
+		
+	.if eax == WM_CREATE
+		invoke	CreateWindowEx,0,CTEXT("BUTTON"),CTEXT("WM_SETTEXT发送"),\
+		WS_CHILD or WS_VISIBLE, 125,80,150,30,hwnd, IDM_BTN_SETTEXT,hInstance,0
+
+		invoke _SetFont,eax
+
+		invoke	CreateWindowEx,0,CTEXT("BUTTON"),CTEXT("WM_COPYDATA发送"),\
+		WS_CHILD or WS_VISIBLE, 125,150,150,30,hwnd, IDM_BTN_COPYDATA,hInstance,0
+		
+		invoke _SetFont,eax
+
+		call	_CheckTarget
+	.elseif	eax == WM_COMMAND
+
+		;SetText按钮按下
+		.if wParam == IDM_BTN_SETTEXT
+			call _CheckTarget
+			.if hTargetWin != 0 
+				invoke SendMessage, hTargetWin, WM_SETTEXT,0,offset szSetText_Data
+				;invoke MessageBox, 0, CTEXT("我发送了WM_SETTEXT到接收端"),CTEXT("信息"),0
+			.endif
+		.endif
+
+		;CopyData按钮按下
+		.if wParam == IDM_BTN_COPYDATA
+			call _CheckTarget
+			.if hTargetWin != 0 
+				invoke	RtlZeroMemory,addr SendCDS,sizeof COPYDATASTRUCT
+
+				invoke _GetStringLen,offset szCopyData_Data
+
+				mov	SendCDS.cbData ,eax
+				mov	SendCDS.lpData ,offset szCopyData_Data 
+				invoke SendMessage, hTargetWin, WM_COPYDATA,hwnd,addr SendCDS
+				;invoke MessageBox, 0, CTEXT("我发送了WM_CopyData到接收端"),CTEXT("信息"),0
+			.endif
+		.endif
+	.elseif eax == WM_CLOSE
+		invoke DestroyWindow,hwnd
+		invoke PostQuitMessage,0
+	.else
+		invoke	DefWindowProc,hwnd,msg,wParam,lParam
+		ret
+	.endif
+	xor	eax,eax
+	ret
+_CallWnd	endp
+
+;建立窗口的一系列动作
+_CreateWindow	proc
+	local	_wc:WNDCLASS
+	local	_hWnd:HWND
+	local	_msg:MSG
+
+	invoke	RtlZeroMemory,addr _wc, sizeof WNDCLASS
+	mov	_wc.style, CS_HREDRAW or CS_VREDRAW
+	push	hInstance
+	pop	_wc.hInstance
+	mov	_wc.lpszClassName,	offset szClassName
+	invoke LoadCursor,0,IDC_ARROW
+	mov 	_wc.hCursor,eax
+	mov 	_wc.hbrBackground , COLOR_WINDOW
+	mov	_wc.lpfnWndProc,	offset _CallWnd
+
+	invoke	RegisterClass,addr _wc
+
+	invoke	CreateWindowEx, 0, offset szClassName, offset szTitleName, WS_SYSMENU, 550, 100, 400, 300, 0, 0, hInstance, 0
+	mov _hWnd,eax
+
+	invoke ShowWindow,_hWnd, SW_SHOWNORMAL
+	invoke UpdateWindow, _hWnd
+
+	.while TRUE
+	     invoke	GetMessage, addr _msg, 0, 0, 0
+	     .break .if eax == 0
+	     invoke	TranslateMessage,addr _msg
+	     invoke	DispatchMessage,addr _msg
+	.endw
+	ret
+_CreateWindow	EndP
+
+start:
+	invoke	GetModuleHandle,NULL
+	mov	hInstance,eax
+	invoke	_CreateWindow;建立窗口，包括注册窗口类，建立，显示，更新
+	invoke	ExitProcess,NULL
+end start

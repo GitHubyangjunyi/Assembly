@@ -1,0 +1,298 @@
+.486
+.Model Flat, StdCall
+Option Casemap :None
+
+;SHA1_EnCode PROTO pSrc:DWORD,nSize:DWORD,nTotal:DWORD,pDest:DWORD,nSlice:DWORD
+;参数说明：
+;	pSrc,用来计算的数据起始地址
+;	nSize,本次提交的数据字节数。当nSlice=1或2时，该值必须是64的整倍数
+;	nTotal,参加计算的数据总字节数。比如你想计算一个文件时，nTotal就是文件的总长度。
+;	pDest,用来输出结果的 20 字节的缓冲区地址
+;	nSlice,提交数据分段,0=数据不分段,1=数据开始段,2=数据中间段,3=数据结束段,(当一次性提交时该值应等于0)
+
+;注意：数据开始段和中间段,nSize必须以64字节(40h)对齐
+SHA1XOR4 macro
+	xor	ebx,ebx
+@@:	add	bl,8
+	and	bl,3Fh
+	mov	eax,@fx[ebx]		;off=2*4
+	add	bl,18h
+	and	bl,3Fh
+	xor	eax,@fx[ebx]		;off=8*4
+	add	bl,14h
+	and	bl,3Fh
+	xor	eax,@fx[ebx]		;off=13*4
+	sub	bl,34h
+	and	bl,3Fh
+	xor	eax,@fx[ebx]		;off=0
+	rol	eax,1
+	mov	@fx[ebx],eax
+	add	bl,4
+	test	bl,3Fh
+	jnz	@B
+endm
+;----------
+SHA1FUNC1 macro p1,p2,p3,p4
+	rol	ecx,5
+	xor	edx,p1
+	and	edx,p2
+	xor	edx,p1
+	add	edx,p3
+	add	edx,ecx
+	add	edx,p4
+	add	edx,5A827999h		;2^30*sqr(2)
+	mov	p4,edx
+	mov	ecx,edx
+	mov	edx,p2
+	rol	edx,1Eh
+	mov	p2,edx
+endm
+;----------
+SHA1FUNC2 macro p1,p2,p3,p4
+	rol	ecx,5
+	xor	edx,p1
+	xor	edx,p2
+	add	edx,p3
+	add	edx,ecx
+	add	edx,p4
+	add	edx,6ED9EBA1h		;2^30*sqr(3)
+	mov	p4,edx
+	mov	ecx,edx
+	mov	edx,p2
+	rol	edx,1Eh
+	mov	p2,edx
+endm
+;----------
+SHA1FUNC3 macro p1,p2,p3,p4,p5
+	rol	ecx,5
+	mov	eax,p2
+	or	edx,eax
+	and	edx,p1
+	and	eax,p3
+	or	edx,eax
+	add	edx,p4
+	add	edx,ecx
+	add	edx,p5
+	add	edx,8F1BBCDCh		;2^30*sqr(5)
+	mov	p5,edx
+	mov	ecx,edx
+	mov	edx,p2
+	rol	edx,1Eh
+	mov	p2,edx
+endm
+;----------
+SHA1FUNC4 macro p1,p2,p3,p4
+	rol	ecx,5
+	xor	edx,p1
+	xor	edx,p2
+	add	edx,p3
+	add	edx,ecx
+	add	edx,p4
+	add	edx,0CA62C1D6h		;2^30*sqr(10)
+	mov	p4,edx
+	mov	ecx,edx
+	mov	edx,p2
+	rol	edx,1Eh
+	mov	p2,edx
+
+endm
+;----------------
+.code
+SHA1_EnCode proc uses ebx esi edi pSrc,nSize,nTotal,pDest,nSlice
+	local	@pRead,@End[4]:byte
+	local	@fy[5]
+	local	@fx[10h]
+			mov	eax,nSlice
+			or	eax,eax				;一次性提交?
+			jz	setBeg
+			dec	eax				;数据开始段?
+			jnz	SkipBeg
+setBeg:			mov	edi,pDest
+			mov	dword ptr [edi],67452301h
+			mov	dword ptr [edi+4],0EFCDAB89h
+			mov	dword ptr [edi+8],98BADCFEh
+			mov	dword ptr [edi+12],10325476h
+			mov	dword ptr [edi+16],0C3D2E1F0h
+SkipBeg:		xor	eax,eax
+			mov	@pRead,eax
+			mov	@End,al
+	LoopBlk:	mov	esi,pSrc
+			lea	edi,@fx
+			mov	ecx,10h				;每次提取64字节,因此当文件未结束时,nSize必须以64字节(40h)对齐
+			mov	ebx,@pRead
+	@@:		lea	edx,[ebx+4]
+			cmp	edx,nSize
+			ja	@F
+			mov	eax,[esi+ebx]
+			bswap	eax
+			stosd
+			mov	ebx,edx
+			loop	@B
+			mov	@pRead,ebx
+			jmp	Enc1
+	@@:		mov	eax,nSlice
+			or	eax,eax				;一次性提交?
+			jz	setEnd
+			cmp	eax,3				;数据结束段?
+			jnz	Result
+setEnd:			mov	edx,ecx
+			cmp	ebx,nSize
+			ja	Tail0
+			sub	eax,eax
+			mov	ch,4
+	@@:		cmp	ebx,nSize
+			jz	@F
+			shl	eax,8
+			mov	al,[esi+ebx]
+			inc	ebx
+			dec	ch
+			jmp	@B
+	@@:		inc	ebx
+			mov	@pRead,ebx
+			shl	eax,8
+			mov	al,80h
+	@@:		dec	ch
+			jz	@F
+			shl	eax,8
+			jmp	@B
+	@@:		stosd
+			dec	ecx
+			jz	Enc1
+	Tail0:		sub	eax,eax
+			rep	stosd
+			cmp	dl,3
+			jb	Enc1
+			mov	al,8
+			mul	nTotal
+			mov	dword ptr @fx[38h],edx
+			mov	dword ptr @fx[3Ch],eax
+			mov	@End,1
+;----------
+	Enc1:		mov	eax,pDest
+			mov	edx,[eax+10h]
+			mov	@fy[00h],edx
+			mov	edx,[eax+0Ch]
+			mov	@fy[04h],edx
+			mov	edx,[eax+08h]
+			mov	@fy[08h],edx
+			mov	ecx,[eax+04h]
+			mov	@fy[0Ch],ecx
+			mov	ecx,[eax]
+			mov	@fy[10h],ecx
+;----------
+			SHA1FUNC1 @fy[04h],@fy[0Ch],@fx[00h],@fy[00h]
+			SHA1FUNC1 @fy[08h],@fy[10h],@fx[04h],@fy[04h]
+			SHA1FUNC1 @fy[0Ch],@fy[00h],@fx[08h],@fy[08h]
+			SHA1FUNC1 @fy[10h],@fy[04h],@fx[0Ch],@fy[0Ch]
+			SHA1FUNC1 @fy[00h],@fy[08h],@fx[10h],@fy[10h]
+			SHA1FUNC1 @fy[04h],@fy[0Ch],@fx[14h],@fy[00h]
+			SHA1FUNC1 @fy[08h],@fy[10h],@fx[18h],@fy[04h]
+			SHA1FUNC1 @fy[0Ch],@fy[00h],@fx[1Ch],@fy[08h]
+			SHA1FUNC1 @fy[10h],@fy[04h],@fx[20h],@fy[0Ch]
+			SHA1FUNC1 @fy[00h],@fy[08h],@fx[24h],@fy[10h]
+			SHA1FUNC1 @fy[04h],@fy[0Ch],@fx[28h],@fy[00h]
+			SHA1FUNC1 @fy[08h],@fy[10h],@fx[2Ch],@fy[04h]
+			SHA1FUNC1 @fy[0Ch],@fy[00h],@fx[30h],@fy[08h]
+			SHA1FUNC1 @fy[10h],@fy[04h],@fx[34h],@fy[0Ch]
+			SHA1FUNC1 @fy[00h],@fy[08h],@fx[38h],@fy[10h]
+			SHA1FUNC1 @fy[04h],@fy[0Ch],@fx[3Ch],@fy[00h]
+			SHA1XOR4
+			SHA1FUNC1 @fy[08h],@fy[10h],@fx[00h],@fy[04h]
+			SHA1FUNC1 @fy[0Ch],@fy[00h],@fx[04h],@fy[08h]
+			SHA1FUNC1 @fy[10h],@fy[04h],@fx[08h],@fy[0Ch]
+			SHA1FUNC1 @fy[00h],@fy[08h],@fx[0Ch],@fy[10h]
+;----------
+			SHA1FUNC2 @fy[04h],@fy[0Ch],@fx[10h],@fy[00h]
+			SHA1FUNC2 @fy[08h],@fy[10h],@fx[14h],@fy[04h]
+			SHA1FUNC2 @fy[0Ch],@fy[00h],@fx[18h],@fy[08h]
+			SHA1FUNC2 @fy[10h],@fy[04h],@fx[1Ch],@fy[0Ch]
+			SHA1FUNC2 @fy[00h],@fy[08h],@fx[20h],@fy[10h]
+			SHA1FUNC2 @fy[04h],@fy[0Ch],@fx[24h],@fy[00h]
+			SHA1FUNC2 @fy[08h],@fy[10h],@fx[28h],@fy[04h]
+			SHA1FUNC2 @fy[0Ch],@fy[00h],@fx[2Ch],@fy[08h]
+			SHA1FUNC2 @fy[10h],@fy[04h],@fx[30h],@fy[0Ch]
+			SHA1FUNC2 @fy[00h],@fy[08h],@fx[34h],@fy[10h]
+			SHA1FUNC2 @fy[04h],@fy[0Ch],@fx[38h],@fy[00h]
+			SHA1FUNC2 @fy[08h],@fy[10h],@fx[3Ch],@fy[04h]
+			SHA1XOR4
+			SHA1FUNC2 @fy[0Ch],@fy[00h],@fx[00h],@fy[08h]
+			SHA1FUNC2 @fy[10h],@fy[04h],@fx[04h],@fy[0Ch]
+			SHA1FUNC2 @fy[00h],@fy[08h],@fx[08h],@fy[10h]
+			SHA1FUNC2 @fy[04h],@fy[0Ch],@fx[0Ch],@fy[00h]
+			SHA1FUNC2 @fy[08h],@fy[10h],@fx[10h],@fy[04h]
+			SHA1FUNC2 @fy[0Ch],@fy[00h],@fx[14h],@fy[08h]
+			SHA1FUNC2 @fy[10h],@fy[04h],@fx[18h],@fy[0Ch]
+			SHA1FUNC2 @fy[00h],@fy[08h],@fx[1Ch],@fy[10h]
+;----------
+			SHA1FUNC3 @fy[04h],@fy[0Ch],@fy[08h],@fx[20h],@fy[00h]
+			SHA1FUNC3 @fy[08h],@fy[10h],@fy[0Ch],@fx[24h],@fy[04h]
+			SHA1FUNC3 @fy[0Ch],@fy[00h],@fy[10h],@fx[28h],@fy[08h]
+			SHA1FUNC3 @fy[10h],@fy[04h],@fy[00h],@fx[2Ch],@fy[0Ch]
+			SHA1FUNC3 @fy[00h],@fy[08h],@fy[04h],@fx[30h],@fy[10h]
+			SHA1FUNC3 @fy[04h],@fy[0Ch],@fy[08h],@fx[34h],@fy[00h]
+			SHA1FUNC3 @fy[08h],@fy[10h],@fy[0Ch],@fx[38h],@fy[04h]
+			SHA1FUNC3 @fy[0Ch],@fy[00h],@fy[10h],@fx[3Ch],@fy[08h]
+			SHA1XOR4
+			SHA1FUNC3 @fy[10h],@fy[04h],@fy[00h],@fx[00h],@fy[0Ch]
+			SHA1FUNC3 @fy[00h],@fy[08h],@fy[04h],@fx[04h],@fy[10h]
+			SHA1FUNC3 @fy[04h],@fy[0Ch],@fy[08h],@fx[08h],@fy[00h]
+			SHA1FUNC3 @fy[08h],@fy[10h],@fy[0Ch],@fx[0Ch],@fy[04h]
+			SHA1FUNC3 @fy[0Ch],@fy[00h],@fy[10h],@fx[10h],@fy[08h]
+			SHA1FUNC3 @fy[10h],@fy[04h],@fy[00h],@fx[14h],@fy[0Ch]
+			SHA1FUNC3 @fy[00h],@fy[08h],@fy[04h],@fx[18h],@fy[10h]
+			SHA1FUNC3 @fy[04h],@fy[0Ch],@fy[08h],@fx[1Ch],@fy[00h]
+			SHA1FUNC3 @fy[08h],@fy[10h],@fy[0Ch],@fx[20h],@fy[04h]
+			SHA1FUNC3 @fy[0Ch],@fy[00h],@fy[10h],@fx[24h],@fy[08h]
+			SHA1FUNC3 @fy[10h],@fy[04h],@fy[00h],@fx[28h],@fy[0Ch]
+			SHA1FUNC3 @fy[00h],@fy[08h],@fy[04h],@fx[2Ch],@fy[10h]
+
+
+			SHA1FUNC4 @fy[04h],@fy[0Ch],@fx[30h],@fy[00h]
+			SHA1FUNC4 @fy[08h],@fy[10h],@fx[34h],@fy[04h]
+			SHA1FUNC4 @fy[0Ch],@fy[00h],@fx[38h],@fy[08h]
+			SHA1FUNC4 @fy[10h],@fy[04h],@fx[3Ch],@fy[0Ch]
+			SHA1XOR4
+			SHA1FUNC4 @fy[00h],@fy[08h],@fx[00h],@fy[10h]
+			SHA1FUNC4 @fy[04h],@fy[0Ch],@fx[04h],@fy[00h]
+			SHA1FUNC4 @fy[08h],@fy[10h],@fx[08h],@fy[04h]
+			SHA1FUNC4 @fy[0Ch],@fy[00h],@fx[0Ch],@fy[08h]
+			SHA1FUNC4 @fy[10h],@fy[04h],@fx[10h],@fy[0Ch]
+			SHA1FUNC4 @fy[00h],@fy[08h],@fx[14h],@fy[10h]
+			SHA1FUNC4 @fy[04h],@fy[0Ch],@fx[18h],@fy[00h]
+			SHA1FUNC4 @fy[08h],@fy[10h],@fx[1Ch],@fy[04h]
+			SHA1FUNC4 @fy[0Ch],@fy[00h],@fx[20h],@fy[08h]
+			SHA1FUNC4 @fy[10h],@fy[04h],@fx[24h],@fy[0Ch]
+			SHA1FUNC4 @fy[00h],@fy[08h],@fx[28h],@fy[10h]
+			SHA1FUNC4 @fy[04h],@fy[0Ch],@fx[2Ch],@fy[00h]
+			SHA1FUNC4 @fy[08h],@fy[10h],@fx[30h],@fy[04h]
+			SHA1FUNC4 @fy[0Ch],@fy[00h],@fx[34h],@fy[08h]
+			SHA1FUNC4 @fy[10h],@fy[04h],@fx[38h],@fy[0Ch]
+			SHA1FUNC4 @fy[00h],@fy[08h],@fx[3Ch],@fy[10h]
+
+			mov	eax,pDest
+			add	[eax],ecx
+			mov	ecx,@fy[0Ch]
+			add	[eax+04h],ecx
+			add	[eax+08h],edx
+			mov	edx,@fy[04h]
+			add	[eax+0Ch],edx
+			mov	edx,@fy[00h]
+			add	[eax+10h],edx
+
+			cmp	@End,0
+			jz	LoopBlk
+			mov	edi,pDest
+			mov	ecx,5
+	@@:		mov	eax,[edi]
+			bswap	eax
+			stosd
+			loop	@B
+Result:			ret
+SHA1_EnCode endp
+;--------------
+SHA1_GetCode PROC PUBLIC pSrc:DWORD,nSize:DWORD,pDest:DWORD
+			invoke	SHA1_EnCode,pSrc,nSize,nSize,pDest,0
+			ret
+SHA1_GetCode ENDP
+;--------------
+			end

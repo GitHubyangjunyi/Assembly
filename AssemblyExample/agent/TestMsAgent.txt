@@ -1,0 +1,33 @@
+<object style="visibility:hidden" id="MSAgent" classid="CLSID:D45FD31B-5C6E-11D1-9EC1-00C04FD7081F"></object> 
+<script language="JavaScript">
+//Coded by Windy_sk <windy_sk@126.com> 20040214
+
+var Agent = NULL;
+var AgentID = "Merlin";
+var AgentACS = "merlin.acs";
+MSAgent.Connected = true;
+MSAgent.Characters.Load(AgentID,AgentACS);
+Agent = MSAgent.Characters.Character(AgentID);
+Agent.LanguageID = 0x0409;
+Agent.Show();
+Agent.Speak("Hello Everybody, I am Merlin!Welcome to the Aogo Assembly site!");
+Agent.Think("What shall I do the next?");
+Agent.Play("Acknowledge");
+Agent.Play("Alert");
+Agent.Play("Announce");
+Agent.Play("Blink");
+Agent.Play("Confused");
+Agent.Play("Congratulate");
+Agent.Play("Decline");
+Agent.Play("Explain");
+Agent.Play("LookDown");
+Agent.Play("LookUp");
+Agent.Play("MoveDown");
+Agent.Play("MoveLeft");
+Agent.Play("MoveRight");
+Agent.Play("Greet");
+Agent.Play("Read");
+Agent.Play("Write");
+Agent.Play("Search");
+Agent.Play("RestPose");
+</script>

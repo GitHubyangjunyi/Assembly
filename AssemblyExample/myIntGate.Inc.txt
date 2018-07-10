@@ -1,0 +1,14 @@
+
+include w2k\ntstatus.inc
+include w2k\ntddk.inc
+include w2k\ntoskrnl.inc
+includelib c:\masm32\lib\w2k\ntoskrnl.lib
+include C:\masm32\macros\Strings.mac
+GATE     STRUC      ;门结构类型定义
+    OFFSETL  DW      0  ;32位偏移的低16位
+    SELECTOR DW      0  ;选择子
+    DCOUNT   DB      0  ;双字计数字段
+    GTYPE    DB      0  ;类型
+    OFFSETH  DW      0  ;32位偏移的高16位
+GATE     ENDS 
+IOCTL_MYINTGATE	        equ CTL_CODE(FILE_DEVICE_UNKNOWN, 800h, METHOD_BUFFERED, FILE_ANY_ACCESS)

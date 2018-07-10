@@ -1,0 +1,109 @@
+;    在网络上见到一篇利用系统附带的屏幕放大镜（magnify.exe）“破解系统密码”的文章，  ;
+;可是我没有试验成功，后来看看屏幕放大镜也挺好玩的就写了一个简易版本的。先是用VC6.0  ;
+;附带的DEPENDS工具查看magnify.exe的导入表，发现使用的是StretchBlt实现的位图放大功能 ;
+;其实另外的一个函数TransparentBlt也有类似的功能。我本来以为会有鼠标钩子的辅助，可是 ;
+;并没有看到SetWindosHookEx，不过看到User32的SetTimer，所以一切已基本明了。          ;                                                          ;
+;    本来我天真的把光标放在圆形窗口的中间，但是经过一段时间的郁闷，顿悟。你可以尝试 ;
+;一下。更加郁闷的是，tnnd我用baidu搜索到罗云彬老师的一篇类似的文章，这是我绝没想到  ;
+;的。仔细拜读了罗老师的代码，也是相似的思路。                                       ;
+;    不过我的代码似乎更简易一些。因为我总是喜欢用最最简单易懂的代码说明问题，在我所 ;
+;写过的程序里基本没有超过100行的。                                                  ;
+;    本代码由http://www.aogosoft.com/提供下载。 你可以任意使用此代码。              ;
+;Author: xiep                                                                       ;
+;Email : bottlexx@163.com                                                           ;
+;Web   : http://hi.baidu.com/xiep_                                                  ;
+
+			.386
+			.model flat, stdcall
+			option casemap :none
+include 	windows.inc
+include 	gdi32.inc
+include 	user32.inc
+include 	kernel32.inc
+includelib 	gdi32.lib
+includelib 	user32.lib
+includelib 	kernel32.lib
+
+			.data
+CTRL_E		equ	0
+ID_TIMER	equ	0
+WINDOW_SIZE	equ	200
+hInstance	dd	0
+hWinMain	dd	0
+szClassName db 	"MyClass",0
+szDisplay	db	"display",0
+
+			.code
+_ProcWinMain	proc	uses ebx edi esi, hWnd, uMsg, wParam, lParam
+	local	@stPoint:POINT
+	local	@hDcDesktop, @hDc
+		
+	mov		eax, uMsg
+	.if		eax ==  WM_TIMER
+		invoke	GetCursorPos, addr @stPoint			;得到光标位置
+		invoke	SetWindowPos, hWnd, HWND_TOPMOST, @stPoint.x, @stPoint.y, \
+				WINDOW_SIZE, WINDOW_SIZE, NULL		;设置窗体位置为光标所处位置，为顶层窗口
+		
+        invoke	CreateDC, addr szDisplay, NULL, NULL, NULL	;创建桌面DC
+		mov		@hDcDesktop, eax
+		invoke	GetDC, hWnd		;得到程序窗口DC
+		mov		@hDc, eax			
+		sub		@stPoint.x, 40	;坐标<=WINDOW_SIZE * 0.414 / 2 % 1 自己试试看为什么要有这个限制
+		sub		@stPoint.y, 40
+		invoke	StretchBlt, @hDc, 0, 0, WINDOW_SIZE, WINDOW_SIZE, @hDcDesktop, \	;DIB传送
+				@stPoint.x, @stPoint.y, 80, 80, SRCCOPY 	;尺寸<=WINDOW_SIZE * 0.414 % 1
+		invoke	DeleteDC, @hDcDesktop	;删除桌面DC
+		invoke	ReleaseDC, hWnd, @hDc	;释放窗口DC
+	.elseif	eax == WM_HOTKEY	;只注册了一个热键CTRL + E，所以就不加判断了
+       	invoke	PostQuitMessage, NULL
+	.elseif	eax == WM_CREATE
+		invoke	CreateEllipticRgn, 0, 0, WINDOW_SIZE, WINDOW_SIZE	;创建圆形区域
+		push	eax
+		invoke	SetWindowRgn, hWnd, eax, TRUE		;设置窗口为圆形
+		pop		eax
+		invoke	DeleteObject, eax					;删除区域句柄
+		invoke	SetTimer, hWnd, ID_TIMER, 100, NULL	;设置定时器
+		invoke  RegisterHotKey, hWnd, CTRL_E, MOD_CONTROL, 45h 		;注册热键 CTRL + E
+	.elseif	eax == WM_CLOSE
+		invoke	KillTimer, hWnd, ID_TIMER			;取消定时器
+		invoke	UnregisterHotKey, hWnd, CTRL_E		;注销热键
+		invoke	DestroyWindow, hWnd
+		invoke	PostQuitMessage, NULL
+	.else
+		invoke	DefWindowProc, hWnd, uMsg, wParam, lParam
+		ret
+	.endif
+	xor		eax, eax
+	ret	
+_ProcWinMain	endp
+			
+_WinMain 	proc
+    local 	@stWndClass:WNDCLASSEX, @stMsg:MSG
+    
+    invoke	RtlZeroMemory, addr @stWndClass, sizeof @stWndClass
+    invoke	GetModuleHandle, NULL
+    mov		hInstance, eax    
+    mov		@stWndClass.hInstance, eax
+    mov		@stWndClass.cbSize, sizeof WNDCLASSEX
+    mov		@stWndClass.lpfnWndProc, offset _ProcWinMain
+    mov		@stWndClass.lpszClassName, offset szClassName
+    invoke	RegisterClassEx, addr @stWndClass
+    invoke	CreateWindowEx, WS_EX_TOOLWINDOW, addr szClassName,	NULL, \
+    		WS_POPUP or WS_SYSMENU, 100, 100, WINDOW_SIZE, WINDOW_SIZE, \
+    		NULL, NULL, hInstance, NULL		
+    mov		hWinMain, eax
+    invoke	ShowWindow, hWinMain, SW_SHOWNORMAL
+    invoke	UpdateWindow, hWinMain
+    .while	TRUE
+   		invoke	GetMessage, addr @stMsg, NULL, 0, 0
+   		.break	.if	eax == 0
+   		invoke	TranslateMessage, addr @stMsg
+   		invoke	DispatchMessage, addr @stMsg
+    .endw
+    ret    
+_WinMain 	endp
+
+start:
+    call 	_WinMain
+    invoke 	ExitProcess, NULL
+end		start

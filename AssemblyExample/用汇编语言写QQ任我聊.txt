@@ -1,0 +1,92 @@
+
+==============================
+
+.386
+.model flat,stdcall  
+option casemap:none  
+DlgProc proto :DWORD,:DWORD,:DWORD,:DWORD
+include \masm32\include\windows.inc
+include \masm32\include\kernel32.inc
+include \masm32\include\user32.inc
+include \masm32\include\masm32.inc
+include \masm32\include\shell32.inc
+
+includelib \masm32\lib\kernel32.lib
+includelib \masm32\lib\user32.lib
+includelib \masm32\lib\masm32.lib
+includelib \masm32\lib\shell32.lib
+.data?
+QQnum db ?
+hInstance HINSTANCE ?
+swidth  dd ?
+sheight dd ?
+dwidth  dd ?      
+dheight dd ?
+rect    RECT <>
+mystr db ?
+szTemp1 db ?
+szTemp2 db ?
+.data
+str1 db "tencent://message/?uin=",0
+str2 db "&Site=im.qq.com&Menu=yes",0
+MainDialog db "MyDialog",0
+szMutex db "zhangkesqqtalker",0
+ErrorText db "Program already run...",0
+ErrorTitle db "Warning!!!",0
+
+.const
+BTNSTART equ 1003
+EDITNUM  equ 1002
+.code
+
+start:
+
+Main proc
+    invoke GetModuleHandle,NULL
+    mov hInstance,eax
+    invoke DialogBoxParam,hInstance,addr MainDialog,NULL,addr DlgProc,NULL
+    invoke ExitProcess,0
+Main endp
+DlgProc proc hWnd:HWND,uMsg:UINT,wParam:WPARAM,lParam:LPARAM
+    .if uMsg==WM_INITDIALOG
+        invoke CreateMutex,NULL,FALSE,addr szMutex
+        invoke GetLastError
+        .IF eax == ERROR_ALREADY_EXISTS
+            invoke MessageBox,NULL,addr ErrorText,addr ErrorTitle,MB_ICONWARNING
+            invoke ExitProcess,NULL
+        .ENDIF
+        ;上面几行代码的作用的防止程序多开(即只能运行一个实例)
+        invoke GetSystemMetrics,SM_CXSCREEN     ;
+        mov swidth,eax                          ;
+        invoke GetSystemMetrics,SM_CYSCREEN     ;
+        mov sheight,eax                         ;
+        invoke GetWindowRect,hWnd,addr rect     ;
+        mov eax,rect.right                      ;这几行是为下面invoke SetWindowPos做准备
+        sub eax,rect.left                       ;
+        mov dwidth,eax                          ;
+        sub swidth,eax                          ;使窗体出现在屏幕中心
+        mov eax,rect.bottom                     ;
+        sub eax,rect.top                        ;
+        mov dheight,eax                         ;其中不明白的地方看一下Platform SDK就可以了
+        sub sheight,eax                         ;
+        shr sheight,1                           ;
+        shr swidth,1                            ;
+        invoke SetWindowPos,hWnd,HWND_NOTOPMOST,swidth,sheight,dwidth,dheight,SWP_SHOWWINDOW
+    .elseif uMsg==WM_COMMAND
+        mov eax,wParam
+          .if ax==BTNSTART
+            invoke szCopy,addr str1,addr mystr
+              invoke GetDlgItemText,hWnd,EDITNUM,addr QQnum,11
+            invoke szCatStr,addr mystr,addr QQnum
+              invoke szCatStr,addr mystr,addr str2
+              invoke ShellExecute,NULL,NULL,addr mystr,NULL,NULL,SW_HIDE
+        .endif
+    .elseif uMsg==WM_CLOSE
+        invoke EndDialog,hWnd,0
+    .else
+        mov eax,FALSE
+          ret
+    .endif
+    mov eax,TRUE
+    ret
+DlgProc endp

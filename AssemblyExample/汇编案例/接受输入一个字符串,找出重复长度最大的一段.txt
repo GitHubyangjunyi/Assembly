@@ -1,0 +1,112 @@
+;接受输入一个字符串,找出重复长度最大的一段
+;作者:永夜的极光
+;时间:2007-11-13
+
+;程序运行结果
+;*********** Welcome ***********
+;Input string(length<30): aaaaaaaabbaaaaa
+;The max length is 08
+;Repeat char is a
+
+;Press any key to exit...
+assume cs:code,ds:data
+data segment
+    inf0 db '*********** Welcome ***********',0dh,0ah,'Input string(length<30): $';各提示语句
+    inf1 db 0dh,0ah,'The max length is ';这一段是提示语句加数据合在一起,到时候调用一次中断就能一次性输出
+    maxlen dw ?
+    inf2 db 0dh,0ah,'Repeat char is '
+    repchar db ?
+    inf3 db 0dh,0ah,'$'
+    inf_end db 0dH,0aH,'Press any key to exit...$';按任意键退出
+    buf db 30;缓冲区(这一位表示缓冲区实际长度)
+            db ?;实际输入字符数
+            db 30 dup (?);实际缓冲区位置
+data ends
+
+stack segment
+    db 80 dup (0)
+stack ends
+
+code segment
+start:
+    mov ax,data;设置段寄存器
+    mov ds,ax
+    mov ax,stack
+    mov ss,ax
+    mov sp,80
+    call main;调用主函数
+    lea dx,inf_end;输出提示语句(按任意键结束)
+    mov ax,0900H
+    int 21H
+    mov ax,0700H;等待一个按键,不回显
+    int 21H
+    mov ax,4c00H;结束
+    int 21H
+    
+;主函数
+main proc near
+    
+    lea dx,inf0    ;提示用户输入字符串
+    mov ax,0900H
+    int 21H
+    lea dx,buf    ;接受输入并存入缓冲区
+    mov ax,0a00H
+    int 21H
+    
+    xor cx,cx    ;cx清零
+    mov cl,[buf+1]    ;实际输入长度保存在cl
+    lea si,[buf+2]    ;si指向缓冲区实际位置
+    
+l1:
+    call countsame    ;调用函数,找到当前si所指字符后面连续的与之相等的字符个数
+    cmp ch,[maxlen]    ;比较目前保存的最大长度和此次调用获得的长度
+    jna s
+    mov [maxlen],ch    ;如果此次调用函数获得长度比目前保存的maxlen还大,那就把maxlen替换掉,同时也记录重复的字符
+    mov ax,[si]
+    mov [repchar],al
+s:
+    mov si,di                ;di指向调用函数后,找到的第一个不同的字符,把这个位置赋值给si,再继续循环
+    sub cl,ch                ;ch保存的是本次调用所获得的相同字符的长度,每次调用就从总长度减掉这个值,等减到最后为0,也就是跳出循环的时候
+    cmp cl,0
+    jnz l1
+    
+    mov ax,[maxlen]    ;把最大长度放到ax,为的是把数字转变为字符串
+    mov bl,10                ;除10,ah保存余数,al保存商,因为长度最大才30,所以只要在ah和al都加上30H,就可以变为字符串了.
+    div    bl
+    add ax,3030H
+    mov [maxlen],ax    ;把转换后的结果放回去
+    
+    lea dx,inf1            ;把整个结果字符串输出
+    mov ax,0900H
+    int 21H
+    
+    
+    ret
+
+main endp
+
+;函数功能:找到si之后与[si]连续的相等的字符个数
+;输入参数:si 指向寻找的字符
+;输出参数:di 指向si后面第一个和si不同的字符
+;                    ch 和si相同的字符个数(包括si本身,也就是至少为1)
+countsame proc near
+    
+    push ax
+    lea di,[si+1]    ;di指向si后面一个
+    mov ch,1            ;ch最小是1
+ll1:
+    mov al,ds:[di];把di指向的字符放到al里面,与si指向的字符比较
+    cmp al,[si]
+    jnz l2                 ;如果不相等,就可以结束循环了
+    inc di                ;di后移
+    inc ch                ;计数加1
+    jmp short ll1
+l2:
+    pop ax
+    ret
+
+countsame endp
+code ends
+end start
+
+

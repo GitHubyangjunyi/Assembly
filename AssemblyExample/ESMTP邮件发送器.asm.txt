@@ -1,0 +1,488 @@
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;程序作者:asm
+;信息来源:红狼安全小组
+;如欲转载，请保持文章的完整性，并且注明作者等版权信息
+;红狼安全小组 http://www.wolfexp.net/forum/
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+.386
+.model   flat,stdcall
+option   casemap:none
+include   windows.inc
+include   user32.inc
+include   kernel32.inc
+include   wsock32.inc
+include   Ws2_32.inc
+include	 comdlg32.inc
+
+includelib   user32.lib
+includelib   kernel32.lib
+includelib   wsock32.lib
+includelib   Ws2_32.lib
+includelib	 comdlg32.lib
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; Equ 等值定义
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ICO_MAIN	equ		1000h	;图标
+DLG_MAIN	equ		1
+IDC_Server       equ              1001
+IDC_User         equ              1002
+IDC_Pass          equ             1003
+IDC_Sender        equ             1004
+IDC_RecvServer    equ             1005
+IDC_Recver        equ             1006
+IDC_FuJian        equ             1007
+IDC_LiuLang       equ             1008
+IDC_Title         equ             1009
+IDC_ZhengWen       equ            1010
+IDC_ServerRecv     equ            1011
+IDC_About          equ            1012
+
+Base64Encode proto :DWORD,:DWORD,:DWORD
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; 数据段
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+.data
+;用来方便调式的
+sz1 db "smtp.163.com",0
+sz2   db "asm_code",0
+sz3  db "asm_code@163.com",0
+szPa db "123456789",0
+sz4 db "smtp.qq.com",0
+sz5 db "448761813@163.com",0
+sz6 db "月亮MM",0
+sz7 db "喂，月亮MM，我asm来拉.....",0
+
+
+szEhlo db "EHLO <%s>",13,10,0
+szAUTH db "AUTH LOGIN",13,10,0
+sendUserWorld db "%s",13,10,0
+sendPassWorld db "%s",13,10,0
+szFrom db "MAIL FROM: <%s>",13,10,0
+szTo   db "RCPT TO: <%s>",13,10,0
+szData db "Data",13,10,0
+
+szBody               db    "MAIL FROM: <%s>", 13, 10
+                     db    "RCPT TO: <%s>", 13, 10
+                     db    "Subject: <%s>", 13, 10
+                     db    "MIME_Version:1.0", 13, 10
+                     db    "Content-type:multipart/mixed;Boundary=fuckyou", 13, 10, 13, 10
+                     db    "--fuckyou", 13, 10
+                     db    "Content-type:text/plain;Charset=GB2312", 13, 10
+                     db    "Content-Transfer-Encoding:8bit", 13, 10, 13, 10
+                     db    "<%s>", 13, 10, 13, 10, 0
+                     
+szBody2              db    "--fuckyou", 13, 10, 0
+szBody3              db    "Content-Type:application/octet-stream;Name=1.rar", 0
+szBody4              db    13, 10, 0
+szBody5              db    "Content-Disposition:attachment;FileName=", 0
+szBody6              db    13, 10, 0
+szBody7              db    "Content-Transfer-Encoding:Base64", 13, 10, 13, 10, 0
+szBody8              db    13, 10, 13, 10, 0
+szEnd                db    "--fuckyou--",13, 10, "." , 13, 10, 0
+szEnd1               db     "." , 13, 10, 0
+szOut db "QUIT",13,10,0
+
+base64_alphabet  db "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",0
+szFilter	db	'选择你要打开的文件(*.*)',0,'*.*',0
+szMyTitle db '选择你要打开的文件',0
+szMessageTitle db '文件',0
+about db "本程序使用ESMTP协议发送邮件，采用win32汇编语言编写",13,10
+      db "在windows下测试通过，对方可以接收到您发的邮件",13,10
+      db "本程序是开源的，您可以随便修改，但至少要尊重一下作者保留版权",13,10
+      db "程序编写 by asm[红狼安全小组]",13,10
+      db "http://www.wolfexp.net",13,10
+      db "2007-3-27",13,10,0
+ok    db "关于程序的一点说明",0
+.data?
+hInstance	dd		?
+hWinMain dd ?
+
+szServer db 256 dup(?)
+szUser db 156 dup(?)
+szPass1 db 156 dup(?)
+szEmail db 256 dup(?)
+szRecvServer db 256 dup(?)
+szRecver db 256 dup(?)
+szTitle db 256 dup(?)
+szZheng db 256 dup(?)
+
+szPass db 156 dup(?)
+szEhlo1 db 156 dup(?)
+sendUser db 556 dup(?)
+sendUser1 db 556 dup(?)
+sendPass db 556 dup(?)
+sendPass1 db 556 dup(?)
+szFrom1 db 156 dup(?)
+szTo1 db 156 dup(?)
+senddata db 1024 dup(?)
+szFujian db 224 dup(?)
+SendEstmpData db 5054 dup(?)
+ThreadId DWORD ?
+.const
+MEMORYSIZE equ 65535
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; 代码段
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+.code
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;创建一个线程来发送邮件
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_SendEsmtp proc uses ebx edi esi
+local @wsaData:WSADATA         ;以下是此线程的局部变量
+local @stAddr:sockaddr_in
+local hsocket:DWORD
+local @stFindFile:WIN32_FIND_DATA
+local @hFile:DWORD
+local @dwFileSize:DWORD
+local @hMapFile:DWORD
+local @lpMemory:DWORD
+local hMemory:DWORD
+local hMemory1:DWORD
+local buff[156]:DWORD
+pushad
+invoke  WSAStartup,202h,addr @wsaData ;初始化WSAStartup库
+.if eax!=NULL
+jmp close
+.endif
+invoke socket,AF_INET, SOCK_STREAM,0 ;创建一个套接字
+.if eax==INVALID_SOCKET
+jmp close
+.endif
+mov hsocket,eax
+invoke gethostbyname,addr szServer ;从服务器玉米获取服务器IP
+.if eax==NULL
+jmp close
+.endif
+mov eax,[eax+hostent.h_list];取出其IP地址,因为是hostent结构的一个指针,同时又是函数返回值的一个指针,
+mov eax,[eax]               ;所以分别取两次
+mov eax,[eax]
+mov  @stAddr.sin_addr,eax
+mov @stAddr.sin_family,AF_INET
+invoke htons,25
+mov   @stAddr.sin_port,ax
+invoke connect,hsocket,addr @stAddr,sizeof @stAddr
+.if eax==SOCKET_ERROR
+jmp close
+.endif
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+jmp close
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff ;发送服务器消息到编辑框上
+.endif
+;发送"HELO Server\r\n"
+invoke RtlZeroMemory,addr szEhlo1,sizeof szEhlo1
+invoke wsprintf,addr szEhlo1,addr szEhlo,addr szRecvServer
+invoke lstrlen,addr szEhlo1
+invoke send,hsocket,addr szEhlo1,eax,0
+
+;发送"AUTH LOGIN\r\n"
+invoke lstrlen,addr szAUTH
+invoke send,hsocket,addr szAUTH,eax,0
+
+;发送经过编码的用户名
+invoke Base64Encode,addr szUser,addr sendUser,156 ;其参数:编码前用户,编码后用户,编码后用户长度
+invoke wsprintf,addr sendUser1,addr sendUserWorld,addr sendUser
+invoke lstrlen,addr sendUser1
+invoke send,hsocket,addr sendUser1,eax,0
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+mov eax,FALSE
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;发送经过编码的密码
+invoke Base64Encode,addr szPass1,addr sendPass,156
+invoke wsprintf,addr sendPass1,addr sendPassWorld,addr sendPass
+invoke lstrlen,addr sendPass1
+invoke send,hsocket,addr sendPass1,eax,0
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+mov eax,FALSE
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;发送"Mail From: " 发送者的 Mail Address
+invoke wsprintf,addr szFrom1,addr szFrom,addr szEmail
+invoke lstrlen,addr szFrom1
+invoke send,hsocket,addr szFrom1,eax,0
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+mov eax,FALSE
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;发送"RCPT TO: "，接收者的 Mail Address
+invoke wsprintf,addr szTo1,addr szTo,addr szRecver
+invoke lstrlen,addr szTo1
+invoke send,hsocket,addr szTo1,eax,0
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+mov eax,FALSE
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;发送"DATA"
+invoke lstrlen,addr szData
+invoke send,hsocket,addr szData,eax,0
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+mov eax,FALSE
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;发送Mail Context
+invoke LocalAlloc, LPTR, 10000000 ; 分配内存,这里和老罗说的一样,根据具体附件大小进行分配
+mov hMemory1, eax
+ invoke wsprintf,hMemory1,addr szBody,addr szEmail,addr szTo,addr szTitle,addr szZheng
+ invoke lstrlen,addr szFujian ;检查是否有附件,长度不为0则有.
+ .if eax!=NULL                ;因为这里要假设是否有附件和没有附件两种情况
+  invoke  CreateFile,addr szFujian,GENERIC_READ,\ ;打开文件
+                            FILE_SHARE_READ or FILE_SHARE_WRITE,NULL,\
+                            OPEN_EXISTING,FILE_ATTRIBUTE_ARCHIVE,NULL
+                    .if     eax !=  INVALID_HANDLE_VALUE
+                            mov     @hFile,eax
+                            invoke  GetFileSize,eax,NULL ;获取其长度
+                            mov     @dwFileSize,eax
+                            .if     eax
+                           invoke  CreateFileMapping,@hFile,\ ;创建一个内存映射
+                                    NULL,PAGE_READONLY,0,0,NULL
+                            .if     eax
+                                    mov     @hMapFile,eax
+                                    invoke  MapViewOfFile,eax,\ ;把文件读进内存中
+                                            FILE_MAP_READ,0,0,0
+                                    .if     eax
+                                            mov     @lpMemory,eax
+                assume  fs:nothing ;这里是创建用于处理异常错误的SEH
+                push        ebp
+                push        offset _ErrorExit
+                push        fs:[0]
+                mov     fs:[0],esp                      
+                                            .endif
+                                            .endif
+                                            .endif
+                                            .endif
+                
+invoke LocalAlloc, LPTR, 10000000 ; 分配内存
+mov hMemory, eax
+invoke Base64Encode,@lpMemory,hMemory,@dwFileSize ;对附件进行编码
+
+invoke lstrcat,hMemory1,addr senddata
+invoke lstrcat,hMemory1,addr szBody2
+invoke lstrcat,hMemory1,addr szBody3
+invoke lstrcat,hMemory1,addr szFujian
+invoke lstrcat,hMemory1,addr szBody4
+invoke lstrcat,hMemory1,addr szBody5
+invoke lstrcat,hMemory1,addr szFujian
+invoke lstrcat,hMemory1,addr szBody6
+invoke lstrcat,hMemory1,addr szBody7
+invoke lstrcat,hMemory1,hMemory
+invoke lstrcat,hMemory1,addr szBody8
+
+invoke lstrcat,hMemory1,addr szEnd
+invoke lstrlen,hMemory1
+invoke send,hsocket,hMemory1,eax,0 ;发送Mail Context,这里包含了附件
+
+invoke CloseHandle,@hFile
+invoke  CloseHandle,@hMapFile
+invoke  UnmapViewOfFile,@lpMemory
+
+invoke GlobalFree, hMemory
+invoke GlobalFree, hMemory1
+invoke RtlZeroMemory,addr szFujian,sizeof szFujian ;清空,如果要发附件,则再次选择
+
+.elseif ;如果没有附件,就直接发送内容
+invoke RtlZeroMemory,addr szFujian,sizeof szFujian
+invoke lstrcat,addr SendEstmpData,hMemory1
+invoke lstrcat,addr SendEstmpData,addr szEnd1
+invoke lstrlen,addr SendEstmpData
+invoke send,hsocket,addr SendEstmpData,eax,0
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+mov eax,FALSE
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;发送"QUIT"
+invoke lstrlen,addr szOut
+invoke send,hsocket,addr szOut,eax,0
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke RtlZeroMemory,addr buff,sizeof buff
+invoke  recv,hsocket,addr buff,256,0
+.if eax==SOCKET_ERROR
+mov eax,FALSE
+.elseif
+invoke SendDlgItemMessage,hWinMain,IDC_ServerRecv,LB_ADDSTRING,0,addr buff
+.endif
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+invoke closesocket,hsocket
+invoke WSACleanup
+jmp close
+
+_ErrorExit:
+pop     fs:[0]
+add     esp,0ch
+invoke  UnmapViewOfFile,@lpMemory
+jmp close
+
+close:
+popad
+ret
+_SendEsmtp endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;**********************************************************
+;函数功能：进行Base64编码
+;入口参数：
+;    source            =    传入的字符串
+;    sourcelen        =    传入的字符串的长度
+;出口参数：
+;    destination        =    返回的编码
+;**********************************************************
+Base64Encode   proc    uses ebx edi esi source:DWORD, destination:DWORD, sourcelen:DWORD
+
+    mov  esi, source
+    mov  edi, destination
+@@base64loop:
+    xor eax, eax
+    .if sourcelen == 1
+        lodsb                        ;source ptr + 1
+        mov ecx, 2                   ;bytes to output = 2
+        mov edx, 03D3Dh              ;padding = 2 byte
+        dec sourcelen                ;length - 1
+    .elseif sourcelen == 2
+        lodsw                        ;source ptr + 2
+        mov ecx, 3                   ;bytes to output = 3
+        mov edx, 03Dh                ;padding = 1 byte
+        sub sourcelen, 2             ;length - 2
+    .else
+        lodsd
+        mov ecx, 4                   ;bytes to output = 4
+        xor edx, edx                 ;padding = 0 byte
+        dec esi                      ;source ptr + 3 (+4-1)
+        sub sourcelen, 3             ;length - 3 
+    .endif
+
+    xchg al,ah                       ;flip eax completely
+    rol  eax, 16                     ;can this be done faster
+    xchg al,ah
+
+    @@:
+    push  eax
+    and   eax, 0FC000000h            ;get the last 6 high bits
+    rol   eax, 6                     ;rotate them into al
+    mov   al,  byte ptr [offset base64_alphabet + eax]        ;get encode character
+    stosb
+    pop   eax
+    shl   eax, 6                     ;shift left 6 bits
+    dec   ecx
+    jnz   @B                         ;loop
+    cmp   sourcelen, 0
+    jnz   @@base64loop               ;main loop
+    mov   eax, edx                   ;add padding and null terminate
+    stosd
+    ret
+Base64Encode    endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_GetFile proc
+		local	@stOF:OPENFILENAME
+		local	@stES:EDITSTREAM
+
+;********************************************************************
+; 显示“打开文件”对话框,这里选择附件
+;********************************************************************
+		invoke	RtlZeroMemory,addr @stOF,sizeof @stOF
+		mov	@stOF.lStructSize,sizeof @stOF
+		push	hWinMain
+		pop	@stOF.hwndOwner
+		mov	@stOF.lpstrFilter,offset szFilter
+		mov	@stOF.lpstrFile,offset szFujian
+		mov	@stOF.nMaxFile,MAX_PATH
+		mov	@stOF.Flags,OFN_FILEMUSTEXIST or OFN_PATHMUSTEXIST
+		mov	@stOF.lpstrDefExt,offset szMessageTitle
+		invoke	GetOpenFileName,addr @stOF
+		ret
+_GetFile endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;主程序代码
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ProcDlgMain	proc	uses ebx edi esi hWnd,wMsg,wParam,lParam
+		mov	eax,wMsg
+		.if	eax == WM_CLOSE
+			invoke	EndDialog,hWnd,NULL
+		.elseif	eax == WM_INITDIALOG
+			invoke	LoadIcon,hInstance,ICO_MAIN
+			invoke	SendMessage,hWnd,WM_SETICON,ICON_BIG,eax
+			invoke SetDlgItemText,hWnd,IDC_Server,addr sz1
+			invoke SetDlgItemText,hWnd,IDC_User,addr sz2
+			invoke SetDlgItemText,hWnd,IDC_Pass,addr szPa
+			invoke SetDlgItemText,hWnd,IDC_Sender,addr sz3
+			invoke SetDlgItemText,hWnd,IDC_RecvServer,addr sz4
+			invoke SetDlgItemText,hWnd,IDC_Recver,addr sz5
+			invoke SetDlgItemText,hWnd,IDC_Title,addr sz6
+			invoke SetDlgItemText,hWnd,IDC_ZhengWen,addr sz7
+		.elseif	eax == WM_COMMAND
+			mov	eax,wParam	
+			push	hWnd
+			pop	hWinMain
+			.if	ax == IDOK
+				invoke RtlZeroMemory,addr szServer,sizeof szServer
+				invoke RtlZeroMemory,addr szUser,sizeof szUser
+				invoke RtlZeroMemory,addr szPass1,sizeof szPass1
+				invoke RtlZeroMemory,addr szEmail,sizeof szEmail
+				invoke RtlZeroMemory,addr szRecvServer,sizeof szRecvServer
+				invoke RtlZeroMemory,addr szRecver,sizeof szRecver
+				invoke RtlZeroMemory,addr szTitle,sizeof szTitle
+				invoke RtlZeroMemory,addr szZheng,sizeof szZheng
+				invoke	GetDlgItemText,hWnd,IDC_Server,addr szServer,sizeof szServer
+				invoke	GetDlgItemText,hWnd,IDC_User,addr szUser,sizeof szUser
+				invoke	GetDlgItemText,hWnd,IDC_Pass,addr szPass1,sizeof szPass1
+				invoke	GetDlgItemText,hWnd,IDC_Sender,addr szEmail,sizeof szEmail
+				invoke	GetDlgItemText,hWnd,IDC_RecvServer,addr szRecvServer,sizeof szRecvServer
+				invoke	GetDlgItemText,hWnd,IDC_Recver,addr szRecver,sizeof szRecver
+				invoke	GetDlgItemText,hWnd,IDC_Title,addr szTitle,sizeof szTitle
+				invoke	GetDlgItemText,hWnd,IDC_ZhengWen,addr szZheng,sizeof szZheng
+				invoke CreateThread,NULL,0,addr _SendEsmtp,0,0,addr ThreadId
+				.elseif ax == IDC_LiuLang
+				invoke	GetDlgItemText,hWnd,IDC_FuJian,addr szFujian,sizeof szFujian
+				call _GetFile
+				invoke   SetDlgItemText,hWnd,IDC_FuJian,addr szFujian
+				.elseif ax == IDC_About
+					invoke MessageBox,NULL,addr about,addr ok,MB_ICONINFORMATION
+			.endif
+		.else
+			mov	eax,FALSE
+			ret
+		.endif
+		mov	eax,TRUE
+		ret
+
+_ProcDlgMain	endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+start:
+		invoke	GetModuleHandle,NULL
+		mov	hInstance,eax
+		invoke	DialogBoxParam,hInstance,DLG_MAIN,NULL,offset _ProcDlgMain,NULL
+		invoke	ExitProcess,NULL
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+		end	start

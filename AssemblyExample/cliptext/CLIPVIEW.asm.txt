@@ -1,0 +1,168 @@
+;MASMPlus 代码模板 - 普通的 Windows 程序代码
+
+.386
+.Model Flat, StdCall
+Option Casemap :None
+
+Include windows.inc
+Include user32.inc
+Include kernel32.inc
+Include gdi32.inc
+
+includelib gdi32.lib
+IncludeLib user32.lib
+IncludeLib kernel32.lib
+include macro.asm
+	
+	WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
+
+.DATA
+	szAppName	TCHAR	"ClipView",0
+.DATA?
+	hInstance	HINSTANCE	?
+        hwndNextViewer  HWND		?
+
+.CODE
+START:
+	invoke GetModuleHandle,NULL
+	invoke WinMain,eax,NULL,NULL,SW_SHOWDEFAULT
+	invoke ExitProcess,0
+WinMain proc hInst:DWORD,hPrevInst:DWORD,szCmdLine:DWORD,iCmdShow:DWORD
+	LOCAL wndclass   :WNDCLASSEX
+	LOCAL msg  :MSG
+	LOCAL hWnd :HWND
+	LOCAL hAccel:HACCEL
+
+	mov wndclass.cbSize,sizeof WNDCLASSEX	
+	mov wndclass.style,CS_HREDRAW or CS_VREDRAW	
+	mov wndclass.lpfnWndProc,offset WndProc
+
+	mov wndclass.cbClsExtra,0
+	mov wndclass.cbWndExtra,0
+	
+	push hInst
+	pop wndclass.hInstance
+	
+	invoke LoadIcon,hInst,addr szAppName
+	mov wndclass.hIcon,eax	
+	
+	invoke LoadCursor,NULL,IDC_ARROW
+	mov wndclass.hCursor,eax	
+	
+	invoke GetStockObject,WHITE_BRUSH
+	mov wndclass.hbrBackground,EAX
+	
+	lea eax,szAppName
+	mov wndclass.lpszMenuName,eax
+	mov wndclass.lpszClassName,eax
+
+	mov wndclass.hIconSm,0
+	
+	invoke RegisterClassEx, ADDR wndclass
+	.if (eax==0)
+	   invoke MessageBox,NULL,CTXT("This program requires Windows NT!"),szAppName, MB_ICONERROR
+           ret
+	.endif
+        
+   
+	invoke CreateWindowEx,NULL,
+			ADDR szAppName, 					;window class name
+			CTXT("Simple Clipboard Viewer (Text Only)"), 
+			WS_OVERLAPPEDWINDOW,					;window style
+			CW_USEDEFAULT,						;initial x position
+			CW_USEDEFAULT,						;initial y position
+			CW_USEDEFAULT, 						;initial x size
+			CW_USEDEFAULT,						;initial y size
+			NULL,							;parent window handle
+			NULL,							;window menu handle
+			hInst,							;program instance handle
+			NULL										;creation parameters
+	mov hWnd,eax
+
+
+  	invoke ShowWindow,hWnd,iCmdShow
+	invoke UpdateWindow,hWnd
+	
+	invoke	LoadAccelerators,hInstance,addr szAppName
+	mov	hAccel,eax
+
+	StartLoop:
+		invoke GetMessage,ADDR msg,NULL,0,0
+			cmp eax, 0
+			je ExitLoop
+				invoke TranslateMessage, ADDR msg
+				invoke DispatchMessage,  ADDR msg
+			jmp StartLoop
+	ExitLoop:
+	
+	mov eax,msg.wParam
+	ret
+WinMain endp
+
+
+WndProc proc hwnd:DWORD,uMsg:DWORD,wParam :DWORD,lParam :DWORD
+       LOCAL	hGlobal:HGLOBAL
+       LOCAL	hdc:HDC
+       LOCAL	pGlobal:PTSTR
+       LOCAL    ps:PAINTSTRUCT
+       LOCAL    rect:RECT
+
+	.if	uMsg == WM_CREATE
+		invoke	SetClipboardViewer,hwnd
+		mov	hwndNextViewer,eax
+
+		xor	eax,eax
+		ret	
+	.elseif	uMsg == WM_CHANGECBCHAIN
+		mov	eax,wParam
+		.if	eax == hwndNextViewer
+			mov	eax,lParam
+			mov	hwndNextViewer,eax
+		.else
+			.if	hwndNextViewer!=0
+				invoke	SendMessage,hwndNextViewer, uMsg, wParam, lParam
+			.endif
+		.endif	
+
+		xor	eax,eax
+		ret			
+	.elseif	uMsg == WM_DRAWCLIPBOARD
+		.if	hwndNextViewer != 0
+			invoke	SendMessage,hwndNextViewer, uMsg, wParam, lParam
+		.endif	
+		invoke	InvalidateRect,hwnd, NULL, TRUE
+
+		xor	eax,eax
+		ret
+
+	.elseif uMsg == WM_PAINT
+              invoke	BeginPaint,hwnd,addr ps
+              mov	hdc,eax 
+              invoke	GetClientRect,hwnd,addr rect
+ 	      invoke	OpenClipboard,hwnd	
+ 	      invoke	GetClipboardData,CF_TEXT
+	      mov	hGlobal,eax
+              .if 	hGlobal != NULL
+              		invoke	GlobalLock,hGlobal
+                        mov	pGlobal,eax
+        		invoke	DrawText,hdc, pGlobal, -1, addr rect, DT_EXPANDTABS
+        		invoke	GlobalUnlock,hGlobal
+              .endif
+	      invoke	CloseClipboard
+      	      invoke	EndPaint,hwnd,addr ps
+        
+	      xor	eax,eax
+	      ret
+	.elseif uMsg == WM_DESTROY
+		invoke	ChangeClipboardChain,hwnd, hwndNextViewer
+
+	        invoke 	PostQuitMessage,NULL
+	        xor	eax,eax
+	        ret
+	.endif
+
+	invoke DefWindowProc,hwnd,uMsg,wParam,lParam
+	ret
+WndProc endp
+END START
+

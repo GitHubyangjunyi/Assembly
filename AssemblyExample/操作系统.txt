@@ -1,0 +1,151 @@
+用masm写个简单的操作系统.txt [原创]
+我是一个菜鸟，但我很想学电脑，最近我又想学习dos的原理，就在网上乱搜，看了几篇关于写操作系统的文章，很有启发，于是想自己动手做做实验，写个操作系统，不，确切的说只是引导程序，真正的操作系统原理太复杂，不是我能做的。网上的介绍这方面的文章也只停留在引导阶段，而且很多都是用在linux下编译的。而我没有linux系统，只有一个很烂的masm编译器，所以我就为和我一样只有masm的电脑爱好者们写一篇关于磁盘引导的文章吧。
+   实验目的：写一个引导程序和一个超简单的内核，引导成功后能在键盘上输入字符并显示
+   实验工具：masm5.0编译器，tc2.0,一个电脑（如果有virtual pc的话更可以，在上面做实验不损机子）。
+   实验所需知识：
+     我简单地说说电脑开机的过程吧，电脑开机后经过很复杂的过程，（什么自检呀，bios驻入内存呀，其实我也不太懂）最后bios把引导盘的零磁道一扇区的512字节放入内存0000:7c00开始的地方，然后把控制权交给引导程序，那一瞬间CS=0000,IP=7c00.(我想应该是这样),然后一切就可以进入你的掌握之中了。
+    我们现在用汇编要写的就是7c00之后的程序，把这个程序放在第一个扇区，叫做boot,这个程序的作用是把放在第二个扇区的kernel调入内存8000:0000处并跳到那里执行。
+   实验步骤:   
+     现在开始写第一个引导程序吧：boot.asm
+code segment
+assume cs:code
+start:                   ;cs=0000,ip=7c00
+mov ax,offset start      
+add ax,07c0h             ;ax加上07c0h送给ds,
+mov ds,ax                ;使得ds:0000为内存地址的0000:7c00
+mov si,offset msg        ;msg偏移送si
+call display             ;显示
+
+mov ax, 8000h            ;kernel将要存放的内存的段地址
+mov es, ax               ; 传递给ES
+mov bx, 0                ; kernel偏移地址为0
+mov dl, 0                ; 驱动器号为0h,为A驱
+mov dh, 0                ; 磁头号为0
+mov ch, 0                ;磁道号为0
+mov cl, 2                ;扇区号为2
+mov al, 1                ; 要读的扇区数为1
+mov ah, 2                ; 调用读磁盘的中断程序
+int 13h
+mov si,offset ok         ;显示ok
+call display
+mov bx,offset ker        ;ker 存放的是地址 8000:0000
+jmp dword ptr [bx]       ;跳到这个地址
+
+display:
+lodsb                    ;装入一个字节到al
+or al,al                 ; al=0则表明这个字符串结束
+jz disend                ; 跳到最后返回
+mov ah, 0eh              ;0eh是显示功能号
+mov bx, 7                ; 颜色
+int 10h
+jmp display
+disend:
+ret
+
+msg db 'My Os is loading...',0  ;显示信息
+ok  db 'OK',13,10,0
+ker dw 0,8000h                  ;kernel的内存地址8000:0000
+
+code ends
+end start
+
+好，第一个程序写完了，用masm link编译连接吧,我的汇编功底很烂，所以写的程序也烂，没有多循环读几次
+
+确保装入成功，没有错误处理。其它还有什么错误不足之处请各位大虾指正。
+现在写第二个程序，算是内核吧，其实功能很简单，就是接受键盘输入并回显，但这不能用dos系统功能调用
+
+int 21h,因为这不是dos,这是我们自己的操作系统，我们只能用bios功能。
+下面是kernel.asm
+kernel segment
+assume cs:kernel
+start:
+mov ah,0          ;从键盘读入字符的功能
+int 16h
+mov ah,0eh        ;显示功能
+int 10h
+jmp start         ;无穷循环
+
+kernel ends
+end start
+
+这个程序如此简单，功能只有两个，接受字符和显示，又编译连接吧。
+现在我们生成了两个文件boot.exe,kernel.exe。其中boot.exe不要执行,你可以在dos下运行的是kernel.exe，可以看看写对没有。
+现在就差把这两个文件写入软盘的1,2扇区了。可是你会发现很怪的问题，boot有603字节，kernel有522字节,但是一个扇区只有512字节，怎么写得下？这个问题我最先也迷惑，后来把两个exe文件反汇编才知道真正我们写的代码出现在exe文件的513字节处，exe文件的前512字节是mircosoft定义的exe文件的前缀，其中有exe文件标识，大小，段定位指针等东西，这512字节我们不需要我们就只要后面的，那么我们就来写个程序把boot.exe 和kernel.exe 写入软盘吧，（注意写入引导扇区的时候最后两个字节必须是55aa这是规定的引导扇区的标识。）我这里选的是用tc2.0了，当然也可以用汇编写，
+下面是writebt.c
+#include<stdio.h>
+#include<dos.h>
+union REGS inreg,outreg;
+struct SREGS segreg;
+main()
+{
+int i;
+char boot_buf[512];                          /*暂存放boot.exe的内容*/
+char kernel_buf[512];                        /*暂存放kernel.exe的内容*/
+FILE *fp;
+for(i=0;i<512;i++)
+ {                                           /*先把这两个缓冲区清0*/
+  boot_buf[i]=0;
+  kernel_buf[i]=0;
+ }
+if((fp=fopen("boot.exe","rb"))==NULL)
+   {printf("cannot find boot.exe");exit(0);} /*打开boot.exe*/
+fseek(fp,512L,0);                            /*直接定位到文件第513个字节处,即512L*/
+i=0;
+while(1)
+ {fread(&boot_buf[i],1,1,fp);                /*读入后面的所有内容直到结束*/
+  i++;
+  if(feof(fp))
+  {fclose(fp);
+   break;}
+ }
+boot_buf[510] = 0x55;                        /*最后两个字节必须为55aa*/
+boot_buf[511] = 0xaa;
+
+inreg.h.ah=0x03;                             /*调用bios13h的3号写盘功能*/
+inreg.h.al=0x1;                              /*要读的扇区数为1*/
+inreg.h.ch=0;                                /*磁道号为0*/
+inreg.h.cl=1;                                /*扇区号为1*/
+inreg.h.dh=0;                                /*磁头号为0*/
+inreg.h.dl=0;                                /*驱动器号为0,即a盘*/
+inreg.x.bx=FP_OFF(boot_buf);                 /*bx中写boot_buf的内存偏移地址*/
+segreg.es=FP_SEG(boot_buf);                  /*es中写它的内存段地址*/
+int86x(0x13,&inreg,&outreg,&segreg);         /*调中断写盘*/
+ if (_AH!=0)                                 /*ah为0刚写盘成功，否则退出*/
+  {printf("error writing");exit(0);}
+ else
+  {printf("ok");}
+
+
+if((fp=fopen("kernel.exe","rb"))==NULL)        /*打开kernel.exe*/
+   {printf("cannot find kernel.exe");exit(0);} 
+fseek(fp,512L,0);                              /*直接定位到文件第513个字节处,即512L*/
+i=0;
+while(1)
+ {fread(&kernel_buf[i],1,1,fp);               /*读入后面的所有内容直到结束*/
+  i++;
+  if(feof(fp))
+  {fclose(fp);
+   break;}
+ }
+
+inreg.h.ah=0x03;
+inreg.h.al=0x1;
+inreg.h.ch=0;
+inreg.h.cl=2;                                 /*扇区号为2*/
+inreg.h.dh=0;
+inreg.h.dl=0;
+inreg.x.bx=FP_OFF(kernel_buf);
+segreg.es=FP_SEG(kernel_buf);
+int86x(0x13,&inreg,&outreg,&segreg);
+ if (_AH!=0)
+  {printf("error writing");exit(0);}
+ else
+  {printf("ok");}
+
+
+}
+
+同样地编译连接，现在我们有boot.exe,kernel.exe和writebt.exe，拷贝他们到同一个目录下，然后手插入软盘，执行writebt.exe，如果出现error writing则表明写盘出错，你多运行几次，直到出现okok时就写成功了，但你不要马上切换到a盘按dir，这样系统会出现未格式化的信息，要你格式化。因为刚才我们所做的把微软定义的软盘的一些信息给修改了，dos自然识别不了。现在你可以重起，从软盘起动，你会看到你的成果了。
+这个系统是不是太简单了？对，真正的操作系统有文件管理，内存管理，设备管理....我不懂这些，慢慢学吧。
+    我的方法可能不太好，效率也不高，请各位高手批评指正。我的邮箱是cyxisgreat@sina.com
+    这三个程序在本人机器上编译运行都通过。请各位不要擅自改writebt中inreg.h.*中的内容，否则后果自负。

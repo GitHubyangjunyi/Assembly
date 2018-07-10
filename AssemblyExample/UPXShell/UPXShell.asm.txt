@@ -1,0 +1,503 @@
+		.386
+		.model flat, stdcall
+		option casemap :none
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+; Include 文件定义
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+include		windows.inc
+include		user32.inc
+includelib	user32.lib
+include		kernel32.inc
+includelib	kernel32.lib
+include		gdi32.inc
+includelib	gdi32.lib
+include		Comdlg32.inc
+includelib	Comdlg32.lib
+include		Comctl32.inc
+includelib	Comctl32.lib
+include		UPXShell.inc
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+		.code
+
+include	Option.asm           ;选项对话框 
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_OpenFile	proc
+		LOCAL stOpenFileName : OPENFILENAME
+
+		invoke	RtlZeroMemory,addr stOpenFileName,sizeof OPENFILENAME
+		mov	stOpenFileName.Flags,OFN_PATHMUSTEXIST or OFN_FILEMUSTEXIST
+		mov	stOpenFileName.lStructSize,SIZEOF stOpenFileName
+		mov	eax,hWinMain
+		mov	stOpenFileName.hWndOwner,eax
+		mov	stOpenFileName.lpstrFilter,offset szFilter	;扩展名
+		
+		invoke	RtlZeroMemory, addr szBufOpen, sizeof szBufOpen   ;缓冲区清零
+		
+		mov	stOpenFileName.lpstrFile,offset szBufOpen	     ;文件名缓冲
+		mov	stOpenFileName.nMaxFile,MAX_PATH			;文件名缓冲长度
+		mov	stOpenFileName.lpstrInitialDir,0
+		mov	stOpenFileName.lpstrTitle,offset szTitle
+		invoke	GetOpenFileName, addr stOpenFileName
+		.if	eax == FALSE
+			ret
+		.endif
+		invoke	SetDlgItemText,hWinMain,IDC_FILENAME,addr szBufOpen
+		mov	dwFlag, TRUE
+		ret
+
+_OpenFile	endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_CreateIniFile	proc
+		LOCAL @szBuffer[32]:BYTE
+
+		invoke	wsprintf,addr @szBuffer,addr szFmt1,7            ;压缩等级         
+		invoke	WritePrivateProfileString,addr szSection,\
+				addr szKeyCL,addr @szBuffer,addr szBufIniName
+				
+		invoke	wsprintf,addr @szBuffer,addr szFmt1,0            ;  0：为不强迫压缩 ， 1：为强迫压缩		
+		invoke	WritePrivateProfileString, addr szSection,\
+				addr szkeyForce, addr @szBuffer, addr szBufIniName
+				
+		invoke	wsprintf,addr @szBuffer,addr szFmt1,0            ;  0：为不备份程序 ， 1：为备份程序		
+		invoke	WritePrivateProfileString, addr szSection,\
+				addr szKeyBackUp, addr @szBuffer, addr szBufIniName
+				
+ 		
+		invoke	WritePrivateProfileString, addr szSection,\      ;  覆盖
+				addr szKeyOverLay, addr szValueOverLayC, addr szBufIniName
+
+		invoke	WritePrivateProfileString, addr szSection,\      ;  输出节
+				addr szkeyExport, addr szValueExport, addr szBufIniName
+
+		invoke	WritePrivateProfileString, addr szSection,\      ;  图标
+				addr szKeyIcon, addr szValueIconsFD, addr szBufIniName
+
+		invoke	WritePrivateProfileString, addr szSection,\      ;  重定位
+				addr szKeyRelocs, addr szValueRelocs, addr szBufIniName
+
+
+					ret
+
+_CreateIniFile	endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+_GetIniFile	proc
+			LOCAL	@stFindFile:WIN32_FIND_DATA
+			LOCAL @hFindFile
+;********************************************************************
+; 将当前路径和 ini 文件名组合起来
+;********************************************************************
+		invoke	GetCurrentDirectory, MAX_PATH, addr szBufIniName
+		mov	esi,offset szBufIniName
+		invoke	lstrlen,esi
+		mov	ecx,offset szIniName
+		.if	BYTE ptr [esi+eax-1] == '\'
+			inc	ecx
+		.endif
+		invoke	lstrcat,esi,ecx
+;********************************************************************
+; 是否存在ini文件
+;********************************************************************
+		invoke	FindFirstFile,addr szBufIniName,addr @stFindFile
+		.if	eax !=	INVALID_HANDLE_VALUE
+			mov	@hFindFile,eax
+			invoke	FindClose,@hFindFile
+
+		.else
+			
+			invoke	_CreateIniFile
+
+		.endif
+
+		ret
+
+_GetIniFile	endp
+
+_GetExeFile	proc
+			LOCAL	@stFindFile:WIN32_FIND_DATA
+			LOCAL @hFindFile
+;********************************************************************
+; 将当前路径和 exe 文件名组合起来
+;********************************************************************
+		invoke	GetCurrentDirectory, MAX_PATH, addr szBufExeName
+		mov	esi,offset szBufExeName
+		invoke	lstrlen,esi
+		mov	ecx,offset szExeName
+		.if	BYTE ptr [esi+eax-1] == '\'
+			inc	ecx
+		.endif
+		invoke	lstrcat,esi,ecx
+;********************************************************************
+; 是否存在upx程序
+;********************************************************************
+		invoke	FindFirstFile,addr szBufExeName,addr @stFindFile
+		.if	eax !=	INVALID_HANDLE_VALUE
+			mov	@hFindFile,eax
+			invoke	FindClose,@hFindFile
+
+		.else
+			invoke	MessageBox,NULL,addr szText2, addr szErrCaption,MB_ICONERROR or MB_OK
+			invoke	EndDialog,hWinMain,NULL
+
+		.endif
+
+		ret
+
+_GetExeFile	endp
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+_ReadIniFile	proc
+		LOCAL @szBuffer[32]:BYTE
+		
+;********************************************************************
+	.if dwFlag == TRUE
+		
+		invoke	RtlZeroMemory, addr szBufCmdParam, sizeof szBufCmdParam
+		invoke	RtlZeroMemory, addr @szBuffer, sizeof @szBuffer
+		invoke	lstrcat, addr szBufCmdParam, addr szBufExeName
+
+		;压缩等级
+		invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+
+		invoke	GetPrivateProfileInt, addr szSection, addr szKeyCL, 7, addr szBufIniName
+		invoke	wsprintf, addr @szBuffer, addr szFmt1, eax                 
+		invoke	lstrcat, addr szBufCmdParam, addr @szBuffer
+		
+;********************************************************************
+
+		;强迫压缩
+		invoke	GetPrivateProfileInt, addr szSection, addr szkeyForce, 0, addr szBufIniName
+		
+		.if eax == 1
+			
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueF
+			
+		.elseif eax == 0
+						
+		   ;0：为不强迫压缩 ， 1：为强迫压缩
+		   
+		.else
+
+		.endif
+;********************************************************************
+		;备份程序
+		invoke	GetPrivateProfileInt, addr szSection, addr szKeyBackUp, 0, addr szBufIniName
+		.if eax == 1
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueK
+			
+			
+		.elseif eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueNK
+			
+		;  0：为不备份程序 ， 1：为备份程序	
+		.else
+			
+		.endif
+
+;********************************************************************
+		;覆盖
+		invoke	GetPrivateProfileString, addr szSection,\
+			addr szKeyOverLay, addr szValueOverLayC,addr @szBuffer,\
+			sizeof @szBuffer,addr szBufIniName
+			
+		invoke lstrcmp, addr @szBuffer, addr szValueOverLayC
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueOverLayC
+		.endif
+		
+		invoke lstrcmp, addr @szBuffer, addr szValueOverLayST
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueOverLayST
+		.endif
+		
+		invoke lstrcmp, addr @szBuffer, addr szValueOverLaySK
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueOverLaySK
+		.endif
+		
+;********************************************************************
+		;输出节
+		invoke	GetPrivateProfileString,addr szSection,\
+			addr szkeyExport, addr szValueExport,addr @szBuffer,\
+			sizeof @szBuffer,addr szBufIniName
+			
+		invoke lstrcmp, addr @szBuffer, addr szValueExport
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueExport
+		.endif
+		
+		invoke lstrcmp, addr @szBuffer, addr szValueExportN
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueExportN
+		.endif
+		
+;********************************************************************
+		;图标
+		
+		invoke	GetPrivateProfileString,addr szSection,\
+			addr szKeyIcon, addr szValueIconsFD,addr @szBuffer,\
+			sizeof @szBuffer,addr szBufIniName
+			
+		invoke lstrcmp, addr @szBuffer, addr szValueIconsN
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueIconsN
+		.endif
+		
+		invoke lstrcmp, addr @szBuffer, addr szValueIconsFI
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueIconsFI
+		.endif
+		
+		invoke lstrcmp, addr @szBuffer, addr szValueIconsFD
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueIconsFD
+		.endif
+
+;********************************************************************
+		;重定位
+		
+		invoke	GetPrivateProfileString,addr szSection,\
+			addr szKeyRelocs, addr szValueRelocs,addr @szBuffer,\
+			sizeof @szBuffer,addr szBufIniName
+			
+		invoke lstrcmp, addr @szBuffer, addr szValueRelocsN
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueRelocsN
+		.endif
+		
+		invoke lstrcmp, addr @szBuffer, addr szValueRelocs
+		.if eax == 0
+			invoke	lstrcat, addr szBufCmdParam, addr szPreFix
+			invoke	lstrcat, addr szBufCmdParam, addr szValueRelocs
+		.endif
+		 	
+		 	invoke	lstrcat, addr szBufCmdParam, addr szSpace
+			invoke	lstrcat, addr szBufCmdParam, addr szBufOpen
+	.else
+		invoke	MessageBox, NULL, addr szText3, addr szErrCaption, MB_OK
+		ret
+		
+	.endif
+	
+		ret
+
+_ReadIniFile	endp
+
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+_CompressFile	proc
+	LOCAL	@stSu : STARTUPINFO
+	LOCAL @stPi : PROCESS_INFORMATION
+	LOCAL @stSa : SECURITY_ATTRIBUTES
+	LOCAL @hStdIn
+	LOCAL @hStdOut
+	LOCAL @bytesRead
+	
+		invoke	SetDlgItemText,hWinMain,IDC_OUTPUT,NULL
+	
+		mov	@stSa.nLength, sizeof SECURITY_ATTRIBUTES
+		mov	@stSa.lpSecurityDescriptor, NULL
+		mov	@stSa.bInheritHandle, TRUE
+		invoke CreatePipe,addr @hStdIn,addr @hStdOut,addr @stSa,NULL
+				.if eax==NULL
+					invoke MessageBox,hWinMain,addr szText4,addr szErrCaption,MB_ICONERROR+MB_OK
+				.else
+               mov	@stSu.cb, sizeof STARTUPINFO
+					invoke GetStartupInfo,addr @stSu
+					mov eax,@hStdOut
+					mov @stSu.hStdOutput, eax
+					mov @stSu.hStdError, eax
+					mov @stSu.dwFlags, STARTF_USESHOWWINDOW+STARTF_USESTDHANDLES
+					mov @stSu.wShowWindow, SW_HIDE
+					
+					invoke	CreateProcess, NULL, addr szBufCmdParam, NULL, NULL, TRUE, NULL, NULL, NULL, addr @stSu, addr @stPi
+					
+					.if eax==NULL
+						invoke MessageBox, hWinMain,addr szText5,addr szErrCaption,MB_ICONERROR+MB_OK
+					.else
+						invoke CloseHandle,@hStdOut
+						.while TRUE
+							invoke RtlZeroMemory, addr szBufOut, sizeof szBufOut
+							invoke ReadFile, @hStdIn, addr szBufOut, 4095, addr @bytesRead, NULL
+							
+							.if eax==NULL
+								.break
+							.else
+								invoke SendMessage, hOutPut,EM_SETSEL,-1,0
+								invoke SendMessage,hOutPut,EM_REPLACESEL, FALSE, addr szBufOut
+							.endif
+						.endw
+					.endif
+					invoke CloseHandle, @hStdIn
+				.endif
+	
+	
+	ret
+_CompressFile	endp
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_DeCompressFile	proc
+	LOCAL	@stSu : STARTUPINFO
+	LOCAL @stPi : PROCESS_INFORMATION
+	LOCAL @stSa : SECURITY_ATTRIBUTES
+	LOCAL @hStdIn
+	LOCAL @hStdOut
+	LOCAL @bytesRead
+	
+	.if dwFlag == TRUE
+
+		invoke	RtlZeroMemory, addr szBufCmdParam, sizeof szBufCmdParam
+		invoke	lstrcat, addr szBufCmdParam, addr szBufExeName
+		invoke	lstrcat, addr szBufCmdParam, addr szDecom
+		invoke	lstrcat, addr szBufCmdParam, addr szBufOpen
+		invoke	SetDlgItemText,hWinMain,IDC_OUTPUT,NULL
+
+
+	
+		mov	@stSa.nLength, sizeof SECURITY_ATTRIBUTES
+		mov	@stSa.lpSecurityDescriptor, NULL
+		mov	@stSa.bInheritHandle, TRUE
+		invoke CreatePipe,addr @hStdIn,addr @hStdOut,addr @stSa,NULL
+				.if eax==NULL
+					invoke MessageBox,hWinMain,addr szText4,addr szErrCaption,MB_ICONERROR+MB_OK
+				.else
+               mov	@stSu.cb, sizeof STARTUPINFO
+					invoke GetStartupInfo,addr @stSu
+					mov eax,@hStdOut
+					mov @stSu.hStdOutput, eax
+					mov @stSu.hStdError, eax
+					mov @stSu.dwFlags, STARTF_USESHOWWINDOW+STARTF_USESTDHANDLES
+					mov @stSu.wShowWindow, SW_HIDE
+					
+					invoke	CreateProcess, NULL, addr szBufCmdParam, NULL, NULL, TRUE, NULL, NULL, NULL, addr @stSu, addr @stPi
+					
+					.if eax==NULL
+						invoke MessageBox, hWinMain,addr szText5,addr szErrCaption,MB_ICONERROR+MB_OK
+					.else
+						invoke CloseHandle,@hStdOut
+						.while TRUE
+							invoke RtlZeroMemory, addr szBufOut, sizeof szBufOut
+							invoke ReadFile, @hStdIn, addr szBufOut, 4095, addr @bytesRead, NULL
+							
+							.if eax==NULL
+								.break
+							.else
+								invoke SendMessage, hOutPut,EM_SETSEL,-1,0
+								invoke SendMessage,hOutPut,EM_REPLACESEL, FALSE, addr szBufOut
+							.endif
+						.endw
+					.endif
+					invoke CloseHandle, @hStdIn
+				.endif
+	.else
+		
+		invoke	MessageBox, NULL, addr szText6, addr szErrCaption, MB_OK		
+		ret
+		
+	.endif
+	ret
+
+_DeCompressFile	endp
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+_ProcDlgMain	proc	uses ebx edi esi hWnd,wMsg,wParam,lParam
+		LOCAL hRead:DWORD
+		LOCAL hWrite:DWORD
+		LOCAL startupinfo:STARTUPINFO
+		LOCAL pinfo:PROCESS_INFORMATION
+		LOCAL buffer[1024]:byte
+		LOCAL bytesRead:DWORD
+		LOCAL hdc:DWORD
+		LOCAL sat:SECURITY_ATTRIBUTES
+
+		mov	eax,wMsg
+		.if	eax == WM_CLOSE
+			invoke	EndDialog,hWnd,NULL
+		.elseif	eax == WM_INITDIALOG
+;********************************************************************
+			mov	eax, hWnd
+			mov	hWinMain, eax
+			invoke	LoadIcon,hInstance,ICO_MAIN
+			invoke	SendMessage,hWnd,WM_SETICON,ICON_BIG,eax
+			invoke	_GetExeFile
+			invoke	_GetIniFile
+		   mov	dwFlag, FALSE
+		   invoke	GetDlgItem, hWnd, IDC_OUTPUT
+		   mov	hOutPut, eax
+			
+
+;********************************************************************
+		.elseif	eax == WM_COMMAND
+			mov	eax,wParam
+			.if	ax ==	IDC_VIEW    			;打开浏览文件框
+
+				invoke	_OpenFile
+				
+;********************************************************************
+			.elseif	ax ==	IDC_COMPRESS      ;压缩文件
+			
+				invoke	_ReadIniFile
+				ret
+				invoke	_CompressFile
+				
+;********************************************************************
+				
+			.elseif	ax ==	IDC_DECPMPRESS   ;解压文件
+				
+				invoke	_DeCompressFile
+				
+;********************************************************************
+			.elseif	ax ==	IDC_TEST          ;测试文件
+				
+				.if dwFlag == TRUE
+					
+					invoke	WinExec, addr szBufOpen,SW_NORMAL
+					
+				.else
+					
+					invoke	MessageBox, NULL, addr szText7, addr szErrCaption, MB_OK
+					
+				.endif
+				
+;********************************************************************
+			.elseif	ax ==	IDC_OPTION        ;程序设置
+				
+				invoke 	DialogBoxParam, hInstance, DLG_OPTION, hWnd, offset _ProcDlgOption, NULL
+			
+ 
+;********************************************************************
+			.endif
+;********************************************************************
+		.else
+			mov	eax,FALSE
+			ret
+		.endif
+		mov	eax,TRUE
+		ret
+
+_ProcDlgMain	endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+start:
+		invoke	GetModuleHandle,NULL
+		mov	hInstance,eax
+		invoke	DialogBoxParam,hInstance,DLG_MAIN,NULL,offset _ProcDlgMain,NULL
+
+		invoke	ExitProcess,NULL
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+		end	start

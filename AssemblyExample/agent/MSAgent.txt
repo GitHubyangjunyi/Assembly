@@ -1,0 +1,177 @@
+ 
+
+类:  MSAgent  
+ 
+作者:  NaN  
+ 
+日期:  2001-9-24  
+ 
+描述:  This Object creates an Ms Agent COM object. Used for 'speaking' whatever text you send to an instance object of this class
+
+This class uses COM's and you need to have the following incldudes from Ernie's COM model to properly complile this class: 
+
+          include    \masm32\include\ole32.inc            ; Interfacing COM
+          include    \masm32\com\include\oaidl.inc        ; Used for Coinvoke and others
+          include    \masm32\include\oleaut32.inc         ; Used for SysAllocString and Varient
+          include    \masm32\include\bstrlib.inc          ; BSTR functions
+          include    \masm32\include\L.inc                ; BSTR functions
+          includelib \masm32\lib\ole32.lib                ; Interfacing COM 
+          includelib \masm32\lib\oleaut32.lib             ; COM tools lib    
+          includelib \masm32\lib\bstrlib.lib              ; The BSTR lib
+
+NOTE: This is text->speech output only, I am still figuring out the Mouse Input Events for this. Future Versions of this class will suport pop-up boxes over the agent character and send WM_COMMAND messages to your client window.  
+ 
+ 
+
+方法:  CONSTRUCTOR (NONE)  
+ 
+描述:  Creates an Agent Instance. It uses the Default Character (Genie) on your system. Future versions will suport other characters. When created the character is NOT shown. You have to instruct it to be shown before sending any text to speak.  
+ 
+ 返回值:  Handle to MSAgent Object (not COM, but MASM32 OOP object).  
+ 
+ 
+
+方法:  destructor  
+ 
+描述:  Destroys the COM instance. As well as the Global memory allocated with this instance (used for BSTRING conversions).  
+ 
+ 返回值:  无  
+ 
+ 
+
+方法:  getAgent (NONE)  
+ 
+描述:  Returns the pIAgentCharacter COM pointer.  
+ 
+ 返回值:  pIAgentCharacter (COM).  
+ 
+ 
+
+方法:  Hide ()  
+ 
+描述:  Hides the Character, doing its Hide animation.  
+ 
+ 返回值:  无  
+ 
+ 
+
+方法:  Show ()  
+ 
+描述:  Shows the Agent Character, doing its show animation.  
+ 
+ 返回值:  无  
+ 
+ 
+
+方法:  Gesture(GCODE)  
+ 
+描述:  MultiLine Description. HTML TAGS ALLOWED. End with double period.  
+ 
+ GCODE  This is the Gesture type. There currently is the following gestures animations to choose from: 
+
+POS_ACKNOWLEDGE     点头
+POS_ALERT           伸直并抬起眉毛
+POS_ANNOUNCE        举起喇叭并吹奏
+POS_BLINK           眨眼睛
+POS_CONFUSED        挠头
+POS_CONGRATULATE    展示奖品
+POS_CONGRATULATE_2  鼓掌
+POS_DECLINE         抬起手并摇头
+POS_DOMAGIC1        举起魔法棍
+POS_DOMAGIC2        放下魔法棍，出现云彩
+POS_DONTRECOGNIZE   捂住耳朵
+POS_DOWN            向下的手势
+POS_EXPLAIN         将两臂向两侧展开
+POS_GETATTENTION    向前倾并敲击
+POS_GETATTENTION_CONTINUED    向前倾并再次敲击
+POS_GETATTENTION_RETURN       返回正常姿势
+POS_GREET           问候
+POS_HEARING1        耳朵伸长（循环的动画）
+POS_HEARING2        头向左倾（循环的动画
+POS_HEARING3        头向左转（循环的动画）
+POS_HEARING4        头向右转（循环的动画）
+POS_HIDE            消失在帽子下面
+POS_IDLE1_1         喘口气
+POS_IDLE1_2         向左看并眨眼
+POS_IDLE1_3         向右看
+POS_IDLE1_4         从上往右看并眨眼
+POS_IDLE2_1         看看魔法棍并眨眼
+POS_IDLE2_2         手握手并眨眼
+POS_IDLE3_1         打呵欠
+POS_IDLE3_2         入睡（循环的动画）
+POS_LEFT            向左的手势
+POS_LOOKDOWN        向下看
+POS_LOOKDOWNBLINK   眨眼向下看
+POS_LOOKDOWNRETURN  返回正常姿势
+POS_LOOKLEFT        向左看
+POS_LOOKLEFTBLINK   眨眼向左看
+POS_LOOKLEFTRETURN  返回正常姿势
+POS_LOOKRIGHT       向右看
+POS_LOOKRIGHTBLINK  眨眼向右看
+POS_LOOKRIGHTRETURN 返回正常姿势
+POS_LOOKUP          向上看
+POS_LOOKUPBLINK     眨眼向上看
+POS_LOOKUPRETURN    返回正常姿势
+POS_MOVEDOWN        向下飞行
+POS_MOVELEFT        向左飞行
+POS_MOVERIGHT       向右飞行
+POS_MOVEUP          向上飞行
+POS_PLEASED         微笑并把手合在一起
+POS_PROCESS         搅拌大锅
+POS_PROCESSING      搅拌大锅（循环的动画）
+POS_READ            打开书，阅读并查寻
+POS_READ_CONTINUED  阅读并查寻
+POS_READ_RETURN     返回正常姿势
+POS_READING         阅读（循环的动画）
+POS_REST            正常姿势
+POS_RESTPOSE        正常姿势
+POS_RIGHT           向右的手势
+POS_SAD             悲伤的表情
+POS_SEARCH          观察水晶球
+POS_SEARCHING       观察水晶球（循环的动画）
+POS_SHOW            从帽子中出现
+POS_STARTLISTENING  手靠向耳朵
+POS_STOPLISTENING   手捂在耳朵上
+POS_SUGGEST         显示电灯泡
+POS_SURPRISED       显得很吃惊
+POS_THINK           用手托住下巴向上看
+POS_THINKING        用手托住下巴向上看（循环的动画）
+POS_UNCERTAIN       向前倾并抬起眉毛
+POS_UP              向上的手势
+POS_WAVE            摆手
+POS_WRITE           打开书，书写并查寻
+POS_WRITE_CONTINUED 书写并查寻
+POS_WRITE_RETURN    返回正常姿势
+POS_WRITTING        书写（循环的动画）
+
+You should return the Agent to the Rest positon or the character will speak in its last position.  
+ 
+ 返回值:  无  
+ 
+ 
+
+方法:  Speak (lpText)  
+ 
+描述:  Speaks the ASCII text found in the lpText parameter. Up to 2Kb is reserved in any one speaking session. 4Kb for UNICODE -> 2Kb of ASCII. NOTE: The character must be shown before speaking or nothing will happen.  
+ 
+ lpText  This is the pointer to the text to be said.  
+ 
+ 返回值:  无  
+ 
+ 
+
+方法:  ReadClipboard(hWin)  
+ 
+描述:  Reads the contents of the clipboard. NOTE: The character must be shown before speaking or nothing will happen.  
+ 
+ hWin  The handle of the owner window the clipboard should be opended to. True if Read. Flase if not.  
+ 
+ 
+
+ 
+
+
+
+MASM Object To HTML Creator V1.0
+Copyright ?2001 NaN Software.
+NAN32ASM.CJB.NET

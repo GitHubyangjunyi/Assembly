@@ -1,0 +1,880 @@
+;在文档选择栏上单击右键->参数设置,可以设置编译/链接参数及其它属性.
+
+.386
+.model flat, stdcall
+option casemap :none 
+
+include windows.inc
+include kernel32.inc
+Include user32.inc
+
+IncludeLib user32.lib
+IncludeLib kernel32.lib
+include macro.asm
+
+	include Express.inc
+.data
+		DefCharTable	dd	CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd 0
+						dd 0
+						dd CF_TAB or CF_SPACE	;制表符
+						dd CF_WARP					;换行符
+						dd CF_INVALID
+						dd 0
+						dd CF_ENTER					;回车符
+						dd CF_INVALID
+						dd CF_INVALID
+						dd	CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd 0
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						dd CF_INVALID
+						
+						dd	CF_SPACE	;空格
+						dd 0		;!
+						dd CF_MATCH		;"
+						dd 0		;#
+						dd CF_WORD		;$
+						dd 0		;%
+						dd 0		;&
+						dd CF_SELFMATCH		;'
+						dd 0		;(
+						dd 0		;)
+						dd 0		;*
+						dd 0		;+
+						dd 0		;,
+						dd 0		;-
+						dd 0		;.
+						dd 0		;/
+						;  0  1  2  3  4  5  6  7  8  9  :  ;  <  =  >  ?
+						dd	CF_WORD or CF_NUMBER or CF_HEX or CF_BIN
+						dd CF_WORD or CF_NUMBER or CF_HEX or CF_BIN
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd CF_WORD or CF_NUMBER or CF_HEX
+						dd 0
+						dd 0
+						dd 0
+						dd 0
+						dd 0
+						dd 0
+						;  @  A  B  C  D  E  F  G  H  I  J  K  L  M  N  O
+						dd	CF_WORD
+						dd CF_WORD or CF_UPCHAR or CF_HEX
+						dd CF_WORD or CF_UPCHAR or CF_HEX
+						dd CF_WORD or CF_UPCHAR or CF_HEX
+						dd CF_WORD or CF_UPCHAR or CF_HEX
+						dd CF_WORD or CF_UPCHAR or CF_HEX
+						dd CF_WORD or CF_UPCHAR or CF_HEX
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						;  P  Q  R  S  T  U  V  W  X  Y  Z  [  \  ]  ^  _
+						dd	CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd CF_WORD or CF_UPCHAR
+						dd 0
+						dd 0
+						dd 0
+						dd 0
+						dd CF_WORD
+						;  `  a  b  c  d  e  f  g  h  i  j  k  l  m  n  o
+						dd	0
+						dd CF_WORD or CF_LOWCHAR or CF_HEX
+						dd CF_WORD or CF_LOWCHAR or CF_HEX
+						dd CF_WORD or CF_LOWCHAR or CF_HEX
+						dd CF_WORD or CF_LOWCHAR or CF_HEX
+						dd CF_WORD or CF_LOWCHAR or CF_HEX
+						dd CF_WORD or CF_LOWCHAR or CF_HEX
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						;  p  q  r  s  t  u  v  w  x  y  z  {  |  }  ~
+						dd	CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd CF_WORD or CF_LOWCHAR
+						dd 0
+						dd 0
+						dd 0
+						dd 0
+	lpTestDBLead	dd	130 dup(CF_INVALID or CF_DOUBLEBYTE)
+.data?
+	hHeap			dd ?
+	hHeapMem		dd ?
+	HeapMemSize	dd ?
+.CODE
+DissectReplaceExp proc uses esi edi ebx,lpReplaceStr,lpArray,lpiCount
+.if hHeap==0
+	invoke HeapCreate,HEAP_NO_SERIALIZE,4096,0
+	test eax,eax
+	jz @@DisReplaceError
+	mov hHeap,eax
+	invoke HeapAlloc,hHeap,HEAP_NO_SERIALIZE or HEAP_ZERO_MEMORY,4096
+	test eax,eax
+	jz @@DisReplaceError
+	mov HeapMemSize,4000
+	mov hHeapMem,eax
+.endif
+mov edi,hHeapMem
+mov esi,lpReplaceStr
+mov ebx,lpArray
+mov eax,lpiCount
+mov eax,DWORD ptr [eax]
+mov lpiCount,eax
+assume ebx:ptr POINT
+@@NextItemChars:
+	movzx ecx,BYTE ptr [esi]
+	inc esi
+	.if ecx=='\'
+		movzx ecx,BYTE ptr [esi]
+		.if ecx!=0
+			inc esi
+			.if ecx=='n'
+				mov BYTE ptr [edi],0dh
+				inc edi
+				mov ecx,0ah
+			.elseif ecx=='t'
+				mov ecx,9
+			.endif
+		.else
+			mov ecx,'\'
+		.endif
+	.elseif ecx=='{' && BYTE ptr [esi]!=0 && BYTE ptr [esi+1]=='}'
+		movzx ecx,BYTE ptr [esi]
+		inc esi
+		inc esi
+		sub ecx,'0'
+		.if ecx<lpiCount
+			mov eax,[ebx+sizeof POINT*ecx].y
+			sub eax,[ebx+sizeof POINT*ecx].x
+			mov edx,edi
+			sub edx,hHeapMem
+			add edx,eax
+			.if edx>HeapMemSize
+				add edx,4096
+				push edx
+				push ecx
+				invoke HeapReAlloc,hHeap,HEAP_NO_SERIALIZE or HEAP_ZERO_MEMORY,hHeapMem,edx
+				pop ecx
+				pop edx
+				test eax,eax
+				jz @@DisReplaceError
+				sub edi,hHeapMem
+				add edi,eax
+				mov hHeapMem,eax
+				sub edx,96
+				mov HeapMemSize,edx
+			.endif
+			mov eax,[ebx+ecx*sizeof POINT].x
+			mov ecx,[ebx+ecx*sizeof POINT].y
+			@@:
+			mov dl,[eax]
+			.if eax<ecx
+				inc eax
+				mov [edi],dl
+				inc edi
+				jmp @B
+			.endif
+		.endif
+		jmp @@NextItemChars
+	.endif
+	mov [edi],cl
+	inc edi
+	test cl,cl
+	jnz @@NextItemChars
+mov eax,hHeapMem
+@@DisReplaceError:
+ret
+assume ebx:nothing
+DissectReplaceExp endp
+
+ExpressSearchs proc uses ebx esi edi,lpCharTables,lpStart,lpEnd,lpLineStart,lpLineEnd,lpszFindStr,iSizeofFindStr,lpArray,lpCurrIndex,iCount,EFlags
+local iFCount			;*/+查找集合
+local lpDecEnd			;向后搜索时的结束位置
+local bIsDecs			;是否是向后搜索
+local iFindCount		;当前返回组数索引位置
+local iTemp
+	xor ebx,ebx
+	mov bIsDecs,ebx
+	mov edx,lpCurrIndex
+	mov edx,DWORD ptr [edx]
+	mov iFindCount,edx
+	.if (EFlags & EF_DEC) && !(EFlags & EF_MATCHWORD)
+		mov bIsDecs,TRUE				;组合上面的条件
+		mov eax,lpEnd
+		mov lpDecEnd,eax
+		mov eax,lpStart
+		mov lpEnd,eax
+		dec lpStart
+	.endif
+	@NotMacthConnFind:
+	test ebx,ebx
+	jz @F
+		test EFlags,EF_MATCHWORD
+		jnz @ExpressNotMatch
+	@@:
+	.if !(EFlags & EF_MATCHWORD) || (EFlags & EF_FINDONCE)
+		mov edx,lpCurrIndex
+		mov DWORD ptr [edx],1
+	.endif
+	mov iFCount,0
+	mov ebx,lpStart
+	mov esi,lpszFindStr
+	.if bIsDecs==TRUE		;查找方向是向上查找
+		cmp ebx,lpDecEnd
+		jb @ExpressNotMatchExit
+		dec lpStart
+	.else
+		inc lpStart
+	.endif
+	@ConnnReadNextExpChar:
+		movzx eax,BYTE ptr [esi]
+		mov edi,esi
+		inc esi
+		cmp esi,iSizeofFindStr
+		ja @@ExpressMatched
+		cmp ebx,lpEnd
+		ja @ExpressNotMatch
+		mov ecx,ebx
+		movzx edx,BYTE ptr [ebx]
+		inc ebx
+		.if (EFlags & EF_ENDISSIZE)				;完全比较
+			cmp eax,edx
+			jz @ConnnReadNextExpChar
+			.if EFlags & EF_RESERVED				;不区分大小写
+				mov ecx,lpCharTables
+				.if (DWORD ptr [ecx+edx*4] & CF_UPCHAR) && (DWORD ptr [ecx+eax*4] & CF_LOWCHAR)
+					sub eax,20h
+				.elseif (DWORD ptr [ecx+edx*4] & CF_LOWCHAR) && (DWORD ptr [ecx+eax*4] & CF_UPCHAR)
+					add eax,20h
+				.endif
+				cmp eax,edx
+				jz @ConnnReadNextExpChar
+			.endif
+			jmp @ExpressNotMatch
+		.elseif (EFlags & EF_USEEXPRESS)
+			@CheckRangsOne:							;这里是一个循环,只检查当前字符
+			.if eax=="\"
+				movzx eax,BYTE ptr [esi]
+				inc esi
+			.endif
+			cmp BYTE ptr [esi],'-'
+			jnz @DefaultCmp
+				inc esi
+				movzx ecx,BYTE ptr [esi]
+				inc esi
+				.if ecx=="\"
+					movzx ecx,BYTE ptr [esi]
+					inc esi
+				.endif
+				cmp eax,ecx
+				ja @NotSupportOp						;错误,[z-a]
+				mov edi,lpCharTables
+				.if edx<eax || edx>ecx
+					.if !(EFlags & EF_WORDCASE) || (EFlags & EF_RANGENOTCASE)			;不区分大小写
+						.if DWORD ptr [edi+edx*4] & CF_UPCHAR
+							add edx,20h
+						.elseif DWORD ptr [edi+edx*4] & CF_LOWCHAR
+							sub edx,20h
+						.endif
+						.if edx>=eax && edx<=ecx
+							jmp @IsCheckRanges
+						.endif
+					.endif
+					mov eax,-1
+				.endif
+			@IsCheckRanges:
+			cmp eax,-1
+			jnz @@ExpressMatched
+			movzx eax,BYTE ptr [esi]
+			inc esi
+			cmp esi,iSizeofFindStr
+			ja @ExpressNotMatch
+			jmp @CheckRangsOne
+		.else
+			.if eax=="\"				;转义符,直接读取下一个字符并跳过
+				movzx eax,BYTE ptr [esi]
+				inc esi
+				cmp esi,iSizeofFindStr
+				jbe @DefaultCmp
+				ja @NotByonself
+			.elseif eax=='('				;查找")"
+				mov ah,')'
+				@FindByThens:
+				mov dh,1						;用于嵌套括号检测
+				mov ecx,esi
+				@@:
+					mov dl,BYTE ptr [esi]
+					.if al!=ah
+						.if dl=="\"
+							inc esi
+						.elseif dl==al
+							inc dh
+						.endif
+					.endif
+				inc esi
+				cmp esi,iSizeofFindStr
+				ja @IncludeExpError
+				cmp dl,ah
+				jnz @B
+				dec dh
+				jnz @B
+				mov edx,esi
+				dec edx						;找到")"前一个字符地址
+				cmp edx,ecx
+				jbe @EmptyExpErr			;括号内没有任何字符,Errors
+					dec ebx
+					push eax
+					.if eax == 02222h
+						mov eax,EFlags
+						or eax,EF_MATCHWORD or EF_ENDISSIZE or EF_RESERVED
+					.elseif eax==02727h
+						mov eax,EFlags
+						or eax,EF_MATCHWORD or EF_ENDISSIZE
+					.elseif eax & 0F0000000h
+						mov eax,EFlags
+						or eax,EF_MATCHWORD or EF_USEEXPRESS
+					.else
+						mov eax,EFlags
+						or	eax,EF_MATCHWORD
+					.endif
+					and eax,not EF_FINDONCE
+					invoke ExpressSearchs,lpCharTables,ebx,lpEnd,lpLineStart,lpLineEnd,ecx,edx,lpArray,lpCurrIndex,iCount,eax
+					pop edx
+					cmp ecx,0				;发生错误
+					jl @@DirectRet
+					mov dh,BYTE ptr [esi]
+					.if eax==ebx && dl=='(' && (dh=='*' || dh=='+')
+						jmp @DeadLoop		;死循环
+					.endif
+					inc ebx
+					shr edx,16
+					cmp edx,0Fh				;是或者
+					jz @CheckorExps
+					cmp edx,0F0Fh			;是.*<> 或 .+<>
+					jz @CheckExpResult
+					cmp edx,0FFFh			;是!()
+					jz @CheckResults
+					.if eax==0
+						dec eax
+					.else
+						.if edx==0FFh	;取地址
+							mov edx,lpCurrIndex
+							mov ecx,DWORD ptr [edx]
+							.if ecx<iCount
+								inc DWORD ptr [edx]
+								mov edx,lpArray
+								dec ebx
+								mov DWORD ptr [edx+ecx*8],ebx	;保存回写位置
+								mov DWORD ptr [edx+ecx*8+4],eax	;保存回写位置
+							.endif
+						.endif
+						mov ebx,eax
+					.endif
+			.elseif eax=='^'
+				.if ecx==lpLineStart && !(EFlags & EF_BEGINNOTLINEBEGIN) && edx!=0Ah
+					dec ebx
+					jmp @SkipCheckAll
+				.endif
+				cmp edx,0Ah
+				jnz @NotMacthConnFind
+			.elseif eax=='$'
+				.if ecx==lpLineEnd && !(EFlags & EF_ENDNOTLINEEND) && edx!=0dh		;影响了查找local xx:x$
+					dec ebx
+					jmp @SkipCheckAll
+				.endif
+				cmp edx,0Dh
+				jnz @NotMacthConnFind
+			.elseif eax=='"' && !(EFlags & EF_NOTABSMATCH)
+				mov eax,02222h
+				jmp @FindByThens
+			.elseif eax=="'" && !(EFlags & EF_NOTABSMATCH)
+				mov eax,02727h
+				jmp @FindByThens
+			.elseif eax=='{'
+				mov eax,0FF7D7Bh
+				jmp @FindByThens
+			.elseif eax=='['
+				mov eax,0F0005D5Bh
+				jmp @FindByThens
+			.elseif eax=='!'				;条件取反
+				cmp BYTE ptr [esi],'('
+				jnz @NotByonself
+				inc esi
+				mov eax,0FFF2928h
+				jmp @FindByThens
+				@CheckResults:				;取反,找到设置为未找到
+					.if eax!=0
+						mov eax,-1
+					.endif
+			.elseif eax=='#'
+				movzx eax,BYTE ptr [esi]
+				inc esi
+				cmp esi,iSizeofFindStr
+				ja @NotEndStrs
+				.if eax=='?'				;中文字符
+					.if edx>=80h && BYTE ptr [ebx]>3Fh
+						cmp ebx,lpEnd
+						ja @ExpressNotMatch
+						inc ebx
+					.else
+						mov eax,-1
+					.endif
+				.else
+					;第一个字符
+					mov ecx,lpCharTables
+					mov ecx,DWORD ptr [ecx+eax*4]
+					test ecx,CF_HEX
+					jz @NotEndStrs
+					.if ecx & CF_NUMBER
+						sub eax,'0'
+					.elseif ecx & CF_UPCHAR
+						sub eax,'A'
+						add eax,10
+					.else
+						sub eax,'a'
+						add eax,10
+					.endif
+					mov iTemp,eax
+					;第二个字符
+					movzx eax,BYTE ptr [esi]
+					inc esi
+					cmp esi,iSizeofFindStr
+					ja @NotEndStrs
+					mov ecx,lpCharTables
+					mov ecx,DWORD ptr [ecx+eax*4]
+					test ecx,CF_HEX
+					jz @NotEndStrs
+					.if ecx & CF_NUMBER
+						sub eax,'0'
+					.elseif ecx & CF_UPCHAR
+						sub eax,'A'
+						add eax,10
+					.else
+						sub eax,'a'
+						add eax,10
+					.endif
+					mov ecx,iTemp
+					shl ecx,4
+					or eax,ecx
+					jmp @DefaultCmp
+				.endif
+			.elseif eax=='.'
+				.if edx!=20h && edx!=9h
+					mov eax,-1
+				.endif
+			.elseif eax==','
+				mov ecx,lpCharTables
+				.if DWORD ptr [ecx+edx*4] & CF_WORD
+					mov eax,-1
+				.endif
+			.elseif eax=='%'
+				mov ecx,lpCharTables
+				mov ecx,DWORD ptr [ecx+edx*4]
+				.if (ecx & CF_DOUBLEBYTE) && (EFlags & EF_DOUBLEISWORD)
+					cmp ebx,lpEnd
+					jae @F
+					cmp BYTE ptr [ebx],3Fh
+					jbe @F
+					inc ebx
+				.elseif !(ecx & CF_WORD)
+					@@:
+					mov eax,-1
+				.endif
+			.elseif eax=='?'
+				movzx eax,BYTE ptr [esi]
+				.if eax=='+' || eax=='*'
+					movzx eax,BYTE ptr [esi+1]
+					cmp eax,'['
+					jz @F
+					cmp eax,'<'
+					jnz @NotMultiLoops
+					@@:
+				.endif
+			.elseif eax=='*' || eax=='+' || eax=='|' || eax=='<'
+				jmp @NotByonself
+			.elseif eax==')' || eax=='>' || eax=='}' || eax==']'
+				jmp @NotExistExpClose
+			.else
+				@DefaultCmp:
+				.if eax!=edx
+					.if !(EFlags & EF_WORDCASE)			;不区分大小写
+						mov ecx,lpCharTables
+						.if (DWORD ptr [ecx+edx*4] & CF_UPCHAR) && (DWORD ptr [ecx+eax*4] & CF_LOWCHAR)
+							sub eax,20h
+						.elseif (DWORD ptr [ecx+edx*4] & CF_LOWCHAR) && (DWORD ptr [ecx+eax*4] & CF_UPCHAR)
+							add eax,20h
+						.endif
+						cmp edx,eax
+						jz @F
+					.endif
+					mov eax,-1
+					@@:
+				.endif
+				test EFlags,EF_USEEXPRESS					;只是检查区域
+				jnz @IsCheckRanges
+			.endif
+			movzx edx,BYTE ptr [esi]
+			.if eax==-1
+				.if edx!='*'
+					cmp edx,'|'					;或者
+					jz @CheckOrExpLoop
+					cmp edx,'+'
+					jnz @NotMacthConnFind
+					cmp iFCount,0
+					jz @NotMacthConnFind
+				.endif
+				movzx eax,BYTE ptr [esi+1]
+				.if eax=='<' || eax=='['	;去掉*<这个表达式><-到这里,这个表达式没有使用.因为是前面的不满足
+					.if eax=='<'
+						mov eax,3E3Ch
+					.else
+						mov eax,5D5Bh
+					.endif
+					@IsOrSkipTo:
+					inc esi
+					inc esi
+					mov dh,1						;用于嵌套括号检测
+					@@:
+						mov dl,BYTE ptr [esi]
+						.if dl=="\"
+							inc esi
+						.elseif dl==al
+							inc dh
+						.endif
+					inc esi
+					cmp esi,iSizeofFindStr
+					ja @IncludeExpError
+					cmp dl,ah
+					jnz @B
+					dec dh
+					jnz @B
+					.if eax==02928h
+						cmp BYTE ptr [esi],'|'
+						jz @IsOrSkipTo			;循环去掉后面的条件
+						jmp @SkipCheckAll
+					.endif
+				.else
+					inc esi
+				.endif
+				dec ebx		;已经不是单词字符,需要移动到此字符前
+			.elseif edx=='*' || edx=='+'
+				inc iFCount
+				movzx eax,BYTE ptr [esi+1]
+				.if eax=='<' || eax=='['
+					.if eax=='<'
+						mov eax,0F0F3E3Ch
+					.else
+						mov eax,0F0F5D5Bh
+					.endif
+					inc esi
+					inc esi
+					inc ebx						;查找下一个字符是否和条件匹配
+					jmp @FindByThens
+					@CheckExpResult:
+						dec ebx					;减掉一个.
+						test eax,eax
+						jnz @F
+				.endif
+				mov esi,edi
+				jmp @ConnnReadNextExpChar
+				@@:
+					.if BYTE ptr [esi-1]=='>'	;要包含后面的表达式
+						mov ebx,eax
+					.endif
+			.elseif edx=='|'			;找到了
+				@ClearExpLoop:
+				cmp BYTE ptr [esi+1],'('
+				jnz @NotByonself
+				mov eax,02928h
+				jmp @IsOrSkipTo
+				@CheckorExps:
+					movzx edx,BYTE ptr [esi]
+					.if eax==0
+						cmp edx,'|'					;没有再或者了,找不到
+						jnz @NotMacthConnFind
+					.else
+						mov ebx,eax
+						cmp edx,'|'
+						jz @ClearExpLoop			;找到了,去掉后面的条件
+						jmp @SkipCheckAll
+					.endif
+				@CheckOrExpLoop:
+					inc esi
+					cmp BYTE ptr [esi],'('
+					jnz @NotByonself
+					inc esi
+					mov eax,0F2928h
+					jmp @FindByThens
+			.endif
+			@SkipCheckAll:
+			mov iFCount,0
+		.endif
+	jmp @ConnnReadNextExpChar
+	@@ExpressMatched:
+	mov ecx,TRUE
+	.if EFlags & EF_MATCHWORD
+		test EFlags,EF_FINDONCE
+		jnz @F
+		mov eax,ebx
+	.else
+		@@:
+		mov eax,lpStart
+		.if bIsDecs==0
+			dec eax
+		.else
+			inc eax
+		.endif
+		mov edx,ebx
+	.endif
+	ret
+@ExpressNotMatch:
+	.if bIsDecs==TRUE
+		jmp @NotMacthConnFind
+	.endif
+	@ExpressNotMatchExit:				;立即退出
+	mov eax,iFindCount
+	mov edx,lpCurrIndex
+	mov DWORD ptr [edx],eax
+	xor eax,eax
+	xor ecx,ecx
+@@DirectRet:
+	ret
+@NotEndStrs:
+	mov ecx,EFERR_NOTCONST				;没有常数定义
+	jmp @DirectRet
+@NotSupportOp:
+	mov ecx,EFERR_EXPNOTSUPPORT		;范围不能前面小于后面
+	jmp @DirectRet
+@IncludeExpError:
+	mov ecx,EFERR_NOTCLOSEBRACKET		;括号没关闭
+	jmp @DirectRet
+@EmptyExpErr:
+	mov ecx,EFERR_EMPTYEXPRESS			;空的表达式
+	jmp @DirectRet
+@NotExistExpClose:
+	mov ecx,EFERR_NOTEXISTEXP			;多余的表达式符号结束符
+	jmp @DirectRet
+@NotByonself:
+	mov ecx,EFERR_NOTBYONSELF			;这个符号不能单独使用
+	jmp @DirectRet
+@NotMultiLoops:							;没有结束表达式
+	mov ecx,EFERR_NOTLOOPEND
+	jmp @DirectRet
+@DeadLoop:									;在使用*/+的表达式里面的表达式无效
+	mov ecx,EFERR_DEADLOOP
+@DirectRet:
+	mov edx,lpArray
+	mov DWORD ptr [edx],edi				;保存回写位置
+	mov DWORD ptr [edx+4],esi			;保存回写位置
+	jmp @@DirectRet
+ExpressSearchs endp
+
+ExpressSearch proc uses ebx esi edi,lpCharTable,lpStart,lpEnd,lpszFindStr,lpArray,iCount,EFlags
+local RetPos,lpCharTables,lpbuffer[100]:BYTE
+	mov eax,lpCharTable
+	.if eax==0
+		mov eax,offset DefCharTable
+	.endif
+	mov lpCharTables,eax
+	.if (EFlags & EF_ENDISSIZE) && !(EFlags & EF_DEC)
+		mov eax,lpStart
+		add eax,lpEnd
+		mov lpEnd,eax
+	.endif
+	mov RetPos,0
+	mov ebx,lpStart
+	xor esi,esi
+	mov edi,lpszFindStr
+	@@:
+		mov al,[edi+esi]
+		inc esi
+		test al,al
+		jnz @B
+	dec esi
+	jz @NotMatchWord
+	test EFlags,EF_USEEXPRESS
+	jnz @UseExpress
+	mov RetPos,esi
+	mov esi,lpCharTables
+	.if EFlags & EF_DEC						;查找方向是向上查找
+		sub ebx,RetPos
+		@@ConnFindPre:
+		cmp ebx,lpEnd
+		jb @NotMatchWord
+	.else
+		@@ConnFindNext:
+		cmp ebx,lpEnd
+		ja @NotMatchWord
+	.endif
+	xor ecx,ecx
+	@@:
+		cmp ecx,RetPos
+		jae @HIHIFinded						;超出范围
+		movzx edx,BYTE ptr [ebx+ecx]
+		movzx eax,BYTE ptr [edi+ecx]
+		inc ecx
+	cmp edx,eax
+	jz @B
+	.if !(EFlags & EF_WORDCASE)			;不区分大小写
+		.if (DWORD ptr [esi+edx*4] & CF_UPCHAR) && (DWORD ptr [esi+eax*4] & CF_LOWCHAR)
+			add edx,20h
+		.elseif (DWORD ptr [esi+edx*4] & CF_LOWCHAR) && (DWORD ptr [esi+eax*4] & CF_UPCHAR)
+			sub edx,20h
+		.endif
+		cmp edx,eax
+		jz @B
+	.endif
+	@@:
+	.if EFlags & EF_DEC
+		dec ebx
+		jmp @@ConnFindPre
+	.endif
+	inc ebx
+	jmp @@ConnFindNext
+	@HIHIFinded:
+	;找到这个字符串了,是否要完全匹配整个单词
+	.if EFlags & EF_MATCHWORD							;完全匹配
+		.if ebx>lpStart || ((EFlags & EF_DEC) && ebx<=lpStart)
+			movzx eax,BYTE ptr [ebx]					;单词最前一个字符
+			movzx edx,BYTE ptr [ebx-1]					;单词最前的前一个字符
+			.if (DWORD ptr [esi+eax*4] & CF_WORD) && (DWORD ptr [esi+edx*4] & CF_WORD)
+				jmp @B
+			.endif
+		.endif
+		mov edx,ecx
+		add edx,ebx
+		.if edx<=lpEnd || ((EFlags & EF_DEC) && edx>lpEnd)
+			movzx eax,BYTE ptr [edx-1]					;单词最后一个字符
+			movzx edx,BYTE ptr [edx]					;单词最后的后一个字符
+			.if (DWORD ptr [esi+eax*4] & CF_WORD) && (DWORD ptr [esi+edx*4] & CF_WORD)
+				jmp @B
+			.endif
+		.endif
+	.endif
+	mov edx,lpArray
+	.if edx!=0
+		mov DWORD ptr [edx],ebx	;保存回写位置
+		add ecx,ebx
+		mov DWORD ptr [edx+4],ecx	;保存回写位置
+		mov edx,iCount
+		mov DWORD ptr [edx],1
+	.endif
+	mov eax,TRUE
+	ret
+@NotMatchWord:
+	xor eax,eax
+	ret
+@UseExpress:
+	add edi,esi
+	mov esi,lpStart
+	mov edx,lpEnd
+	.if EFlags & EF_DEC
+		xchg esi,edx
+	.endif
+	mov eax,iCount
+	mov eax,DWORD ptr [eax]
+	lea ecx,RetPos
+	and EFlags,not (EF_MATCHWORD or EF_USEEXPRESS or EF_ENDISSIZE or EF_RESERVED)
+	.if (EFlags & EF_FINDONCE) && !(EFlags & EF_DEC)
+		or EFlags,EF_MATCHWORD
+	.endif
+	invoke ExpressSearchs,lpCharTables,lpStart,lpEnd,esi,edx,lpszFindStr,edi,lpArray,ecx,eax,EFlags
+	.if SDWORD ptr ecx==TRUE
+		.if eax==edx
+			mov edx,lpArray
+			mov esi,lpszFindStr
+			mov DWORD ptr [edx],esi			;保存回写位置
+			mov DWORD ptr [edx+4],edi		;保存回写位置
+			mov eax,EFERR_INVALIDEXP
+		.else
+			.if EFlags & EF_MODIFLINESTARTEND
+				.if EFlags & EF_DEC
+					.if eax>=lpEnd
+						.if WORD ptr [eax-1]==0A0Dh
+							inc eax
+						.endif
+					.endif
+					.if edx<=lpStart
+						.if WORD ptr [edx-1]==0A0Dh
+							dec edx
+						.endif
+					.endif
+				.else
+					.if eax>lpStart
+						.if WORD ptr [eax-1]==0A0Dh
+							inc eax
+						.endif
+					.endif
+					.if edx<lpEnd
+						.if WORD ptr [edx-1]==0A0Dh
+							dec edx
+						.endif
+					.endif
+				.endif
+			.endif
+			mov ecx,lpArray
+			mov DWORD ptr [ecx],eax	;保存回写位置
+			mov DWORD ptr [ecx+4],edx	;保存回写位置
+			mov edx,RetPos
+			mov ecx,iCount
+			mov DWORD ptr [ecx],edx
+			mov eax,TRUE
+		.endif
+	.else
+		mov eax,ecx
+	.endif
+ret
+ExpressSearch endp
+
+END

@@ -1,0 +1,432 @@
+一个壳的源代码
+发表于: ASM | 作者: lonkil 
+标签: 汇编一款壳的源代码：
+
+ASM代码
+include win32.inc 
+.586 
+.model flat,stdcall 
+locals 
+
+extrn _wsprintfA:proc,MessageBoxA:proc,ExitProcess:proc,IsDebuggerPresent:proc 
+extrn ReleaseDC:proc,GetDC:proc,TextOutA:proc,GetTickCount:proc 
+
+OLD_TICK_COUNT    equ 072h 
+GET_TICK_COUNT    equ 0c1h 
+IS_DBG_PRESENT    equ 034h 
+EXIT_PROCESS    equ 0a7h 
+
+XX        equ 12345678h 
+
+.data 
+
+PCStart: 
+nop 
+@@PCStartRVA: 
+pushad 
+call    GetRVAOffset,offset @@KillIDA 
+jmp    eax 
+@@KillIDA: 
+;//定位GetProcAddress函数 
+;db    0ebh,001h,0e8h;//乱码样版 
+sub    esp,100h 
+mov    ebp,esp 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    ebx,[ebp+100h+8*4] 
+@@RepScanGPA: 
+dec    ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetPEOffset,ebx 
+mov    ebx,eax 
+xor    esi,esi 
+db    0ebh,001h,0e8h;//乱码样版 
+@@RepScanGPAName: 
+inc    esi 
+call    GetGPANameByIndex,ebx,esi 
+or    eax,eax 
+db    0ebh,001h,0e8h;//乱码样版 
+jz    short @@RepScanGPA 
+mov    edi,eax 
+call    GetGPAString 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    edx,eax 
+call    CompareMemory,edi,edx,15 
+or    eax,eax 
+jnz    short @@RepScanGPAName 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetGPARVAByIndex,ebx,esi 
+mov    esi,eax 
+;//ebx=Kernel32 Base;esi=GetProcAddress 
+
+;//定位其他API函数 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetGTCString 
+call    esi,ebx,eax 
+mov    [ebp+GET_TICK_COUNT],eax 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetIDPString 
+call    esi,ebx,eax 
+mov    [ebp+IS_DBG_PRESENT],eax 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetEXPString 
+call    esi,ebx,eax 
+mov    [ebp+EXIT_PROCESS],eax 
+
+;//Save Old TickCount 
+call    [ebp+GET_TICK_COUNT] 
+mov    [ebp+OLD_TICK_COUNT],eax 
+db    0ebh,001h,0e8h;//乱码样版 
+
+;//Seh Check 
+call    SetSehFrame,offset @@SehCheckContinue 
+xor    eax,eax 
+db    0ebh,001h,0e8h;//乱码样版 
+div    eax 
+ret 
+@@SehCheckContinue: 
+call    ClsSehFrame 
+
+;//Calc Old Entry RVA 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetRVAOffset,offset PCStart 
+mov    ebx,eax 
+call    GetRVAOffset,offset RRVAEIP 
+db    0ebh,001h,0e8h;//乱码样版 
+add    ebx,[eax] 
+call    GetRVAOffset,offset JRVAEIP 
+mov    [eax],ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+
+;//Time Limit Check And Debug Check 
+call    [ebp+GET_TICK_COUNT] 
+cmp    [ebp+OLD_TICK_COUNT],eax 
+db    0ebh,001h,0e8h;//乱码样版 
+ja    @@ExitProcess; 
+sub    eax,1000 
+cmp    [ebp+OLD_TICK_COUNT],eax 
+db    0ebh,001h,0e8h;//乱码样版 
+jb    @@ExitProcess; 
+call    [ebp+IS_DBG_PRESENT] 
+or    eax,eax 
+jnz    @@ExitProcess; 
+db    0ebh,001h,0e8h;//乱码样版 
+
+;//恢复堆栈执行原始程序 
+add    esp,100h 
+popad 
+db    0ebh,001h,0e8h;//乱码样版 
+jmp    JmpOldEIP 
+@@ExitProcess: 
+call    [ebp+EXIT_PROCESS],0 
+
+
+;//得到相对地址 
+GetRVAOffset proc Address:DWORD 
+db    0ebh,001h,0e8h;//乱码样版 
+call    @@PushRVAOffset 
+@@PushRVAOffset: 
+pop    eax 
+sub    eax,offset @@PushRVAOffset 
+db    0ebh,001h,0e8h;//乱码样版 
+add    eax,Address 
+ret 
+GetRVAOffset endp 
+
+;//建立SEH过滤 
+SetSehFrame:    ;SafeEip Change eax ecx edx 
+pop    edx 
+pop    ecx;//Pop Param Safe Eip 
+call    GetRVAOffset,ecx 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    ecx,eax 
+call    GetRVAOffset,offset Exception 
+push    eax 
+db    0ebh,001h,0e8h;//乱码样版 
+push    fs:dword ptr[0];//Push Old Seh Frame 
+mov    fs:dword ptr[0],esp 
+call    GetRVAOffset,offset SafeEIP 
+db    0ebh,001h,0e8h;//乱码样版 
+push    dword ptr[eax];//Push Old Safe Eip 
+mov    dword ptr[eax],ecx;//Set Safe Eip 
+call    GetRVAOffset,offset SafeESP 
+db    0ebh,001h,0e8h;//乱码样版 
+push    dword ptr[eax];//Push Old Safe Esp 
+sub    esp,100h;//Sub Safe Stack Space Size 
+mov    dword ptr[eax],esp;//Set Safe Esp 
+db    0ebh,001h,0e8h;//乱码样版 
+jmp    edx 
+
+;//清除SEH过滤 
+ClsSehFrame:    ;Change ecx edx,Not change eax 
+pop    edx 
+mov    ecx,eax 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetRVAOffset,offset SafeESP 
+mov    esp,[eax];//Get Safe Esp 
+add    esp,100h;//Add Safe Stack Sapce Size 
+db    0ebh,001h,0e8h;//乱码样版 
+pop    dword ptr[eax];//Pop Old Safe Esp 
+call    GetRVAOffset,offset SafeEIP 
+pop    dword ptr[eax];//Pop Old Safe Eip 
+pop    fs:dword ptr[0];//Pop Old Seh Frame 
+db    0ebh,001h,0e8h;//乱码样版 
+pop    eax;//Pop Exception 
+mov    eax,ecx 
+db    0ebh,001h,0e8h;//乱码样版 
+jmp    edx 
+
+;//SEH意外处理，记录错误 
+Exception proc uses ebx esi edi,Record:DWORD,Frame:DWORD,Context:DWORD,Dispatch:DWORD 
+mov    edx,Context 
+call    GetRVAOffset,offset SafeESP 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    eax,[eax] 
+mov    dword ptr[edx.cx_Esp],eax 
+call    GetRVAOffset,offset SafeEIP 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    eax,[eax] 
+mov    dword ptr[edx.cx_Eip],eax 
+xor    eax,eax;忽略错误继续执行 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+Exception endp 
+
+;//比较字符串 
+CompareMemory proc uses ebx esi edi,Src:DWORD,Des:DWORD,Size:DWORD 
+db    0ebh,001h,0e8h;//乱码样版 
+call    SetSehFrame,offset @@NotSame 
+mov    esi,Src 
+mov    edi,Des 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    ecx,Size 
+cld 
+rep    cmpsb 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    ebx,ecx 
+call    ClsSehFrame 
+mov    eax,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+@@NotSame: 
+call    ClsSehFrame 
+mov    eax,-1 
+ret 
+CompareMemory endp 
+
+;//字符解密 
+EncodeString proc uses ebx esi edi,PChar:DWORD,Size:DWORD 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    ecx,Size 
+mov    esi,PChar 
+db    0ebh,001h,0e8h;//乱码样版 
+@@ContEncode: 
+xor    [esi],dword ptr XX 
+add    esi,4 
+db    0ebh,001h,0e8h;//乱码样版 
+loop    short @@ContEncode 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+EncodeString endp 
+
+;//得到GetProcAddress字符串指针 
+GetGPAString proc uses ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+call    @@PushGetProcAddressStr 
+dd    ’PteG’ xor XX,’Acor’ xor XX,’erdd’ xor XX,’ss’ xor XX 
+@@PushGetProcAddressStr: 
+pop    ebx 
+cmp    [ebx],word ptr ’eG’ 
+jz    short @@HasEncode 
+db    0ebh,001h,0e8h;//乱码样版 
+call    EncodeString,ebx,4 
+@@HasEncode: 
+mov    eax,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+GetGPAString endp 
+
+GetGTCString proc uses ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+call    @@PushGetTickCountStr 
+dd    ’TteG’ xor XX,’Ckci’ xor XX,’tnuo’ xor XX,0 
+@@PushGetTickCountStr: 
+pop    ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+cmp    [ebx],word ptr’eG’ 
+jz    short @@HasEncode 
+call    EncodeString,ebx,3 
+@@HasEncode: 
+mov    eax,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+GetGTCString endp 
+
+GetIDPString proc uses ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+call    @@PushIsDebugPresent 
+dd    ’eDsI’ xor XX,’ggub’ xor XX,’rPre’ xor XX,’nese’ xor XX,’t’ xor XX 
+@@PushIsDebugPresent: 
+pop    ebx 
+cmp    [ebx],word ptr ’sI’ 
+jz    short @@HasEncode 
+db    0ebh,001h,0e8h;//乱码样版 
+call    EncodeString,ebx,5 
+@@HasEncode: 
+mov    eax,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+GetIDPString endp 
+
+GetEXPString proc uses ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+call    @@PushExitProcessString 
+dd    ’tixE’ xor XX,’corP’ xor XX,’sse’ xor XX 
+@@PushExitProcessString: 
+pop    ebx 
+cmp    [ebx],word ptr ’xE’ 
+jz    short @@HasEncode 
+db    0ebh,001h,0e8h;//乱码样版 
+call    EncodeString,ebx,3 
+@@HasEncode: 
+mov    eax,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+GetEXPString endp 
+
+;//搜索PE头 
+GetPEOffset proc uses ebx esi edi,MZOffset:DWORD 
+db    0ebh,001h,0e8h;//乱码样版 
+call    SetSehFrame,offset @@RepScanPEOffset 
+mov    ebx,MZOffset 
+@@RepScanPEOffset: 
+dec    ebx 
+and    bx,0f000h 
+db    0ebh,001h,0e8h;//乱码样版 
+movzx    eax,word ptr[ebx] 
+xor    eax,XX 
+cmp    eax,dword ptr ’ZM’ xor XX 
+db    0ebh,001h,0e8h;//乱码样版 
+jnz    short @@RepScanPEOffset 
+movzx    esi,[ebx+PeHeadOffset] 
+add    esi,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+movzx    eax,word ptr[esi] 
+xor    eax,XX 
+cmp    eax,dword ptr ’EP’ xor XX 
+db    0ebh,001h,0e8h;//乱码样版 
+jnz    short @@RepScanPEOffset 
+call    ClsSehFrame 
+mov    eax,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+GetPEOffset endp 
+
+;//从MZ/PE文件中得到GPA名字 
+GetGPANameByIndex proc uses ebx esi edi,MZOffset:DWORD,Index:DWORD 
+db    0ebh,001h,0e8h;//乱码样版 
+call    SetSehFrame,offset @@NotFound 
+mov    ebx,MZOffset 
+movzx    ecx,[ebx+PeHeadOffset] 
+add    ecx,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    esi,[ecx.peExportsRVA] 
+add    esi,ebx 
+mov    edi,[esi.etExportNameList] 
+db    0ebh,001h,0e8h;//乱码样版 
+add    edi,ebx 
+mov    ecx,Index 
+cmp    ecx,[esi.etExportNameSum] 
+db    0ebh,001h,0e8h;//乱码样版 
+jae    short @@NotFound 
+mov    edi,[edi+ecx*4] 
+add    edi,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+or    eax,[edi];//Test 
+or    eax,[edi+15];//Test 
+call    ClsSehFrame 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    eax,edi 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+@@NotFound: 
+call    ClsSehFrame 
+xor    eax,eax 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+GetGPANameByIndex endp 
+
+;//得到GPA地址 
+GetGPARVAByIndex proc uses ebx esi edi,MZOffset:DWORD,Index:DWORD 
+db    0ebh,001h,0e8h;//乱码样版 
+call    GetRVAOffset,offset @@NotFound 
+call    SetSehFrame,eax 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    ebx,MZOffset 
+movzx    ecx,[ebx+PeHeadOffset] 
+db    0ebh,001h,0e8h;//乱码样版 
+add    ecx,ebx 
+mov    esi,[ecx.peExportsRVA] 
+add    esi,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    ecx,Index 
+cmp    ecx,[esi.etExportAddrSum] 
+jae    short @@NotFound 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    edi,[esi.etExportOrdlList] 
+add    edi,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+movzx    ecx,word ptr[edi+ecx*2] 
+cmp    ecx,[esi.etExportAddrSum] 
+jae    short @@NotFound 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    edi,[esi.etExportAddrList] 
+add    edi,ebx 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    edi,[edi+ecx*4] 
+db    0ebh,001h,0e8h;//乱码样版 
+add    edi,ebx 
+or    eax,[edi];//Test 
+call    ClsSehFrame 
+db    0ebh,001h,0e8h;//乱码样版 
+mov    eax,edi 
+ret 
+@@NotFound: 
+call    ClsSehFrame 
+xor    eax,eax 
+db    0ebh,001h,0e8h;//乱码样版 
+ret 
+GetGPARVAByIndex endp 
+
+JmpOldEIP: 
+db    068h 
+JRVAEIP    dd    ? 
+db    0c3h 
+RRVAEIP dd    -1000h 
+SafeESP    dd    ? 
+SafeEIP    dd    ? 
+
+
+PCEnd: 
+MsgFmt    db ’RRVAIP:%X,Size:%x’,0 
+MsgBuf    db 256 dup(?); 
+
+.code 
+
+Exit: 
+call    ShowMsg 
+call    ExitProcess,0 
+
+Start: 
+jmp    PCStart 
+
+ShowMsg proc 
+pushad 
+mov    ebp,esp 
+call    _wsprintfA,offset MsgBuf,offset MsgFmt,offset RRVAEIP,offset PCEnd-offset PCStart 
+call    MessageBoxA,0,offset MsgBuf,offset MsgBuf,0 
+mov    esp,ebp 
+popad 
+ret 
+ShowMsg endp 
+
+end Start

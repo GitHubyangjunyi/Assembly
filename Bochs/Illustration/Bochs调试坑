@@ -1,0 +1,48 @@
+事情是这样的,bochs调试第八章c08_mbr.asm和c08.asm时,死活不能出现字符,看了这个解决了部分问题
+可以使用bximage生成hd虚拟硬盘文件,然后使用dd命令写入,跟img虚拟软盘一样
+https://bbs.pediy.com/thread-155790.htm
+以下是bochsrc配置文件
+###############################################################
+# bochsrc.txt file for DLX Linux disk image.
+###############################################################
+
+cpu:count=1,ips=22100000, reset_on_triple_fault=1,  cpuid_limit_winnt=0, msrs="msrs.def"
+################上面这句话非常重要，如果不加上，安装Windows XP时会蓝屏###############
+# how much memory the emulated machine will have
+megs: 700
+
+# filename of ROM images
+romimage:file=/usr/share/bochs/BIOS-bochs-latest
+vgaromimage:file=/usr/share/bochs/VGABIOS-lgpl-latest
+#设置主板的bios和显卡的bios
+
+# what disk images will be used 
+floppya: 1_44=floppya.img, status=inserted
+#floppyb: 1_44=floppyb.img, status=inserted
+#设置软盘的参数 
+
+# hard disk
+ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
+ata0-master: type=disk, path="BochsHD", mode=flat, cylinders=20, heads=16, spt=63
+#注意这里一定要填对填写之前产生硬盘的参数,上面的参数是用bximage生成10MB的文件的参数
+
+# choose the boot disk.
+boot: disk
+#从光驱引导 填c表示从“硬盘”启动，这个可是指我们的虚拟硬盘
+# default config interface is textconfig.
+#config_interface: textconfig
+#config_interface: wx
+#display_library: x
+# other choices: win32 sdl wx carbon amigaos beos macintosh nogui rfb term svga
+
+# where do we send log messages?
+#log: bochsout.txt
+#日志文件 
+
+# disable the mouse, since DLX is text only
+mouse: enabled=0
+#默认不启用鼠标 
+#如果要启用或者禁用鼠标请按ctrl+第三个鼠标键（也就是滚轮也是可以按下去的）
+
+#ata0-slave: type=cdrom, path="XP.iso", status=inserted
+#这个原来没有是需要自己添加指定了一个cdrom

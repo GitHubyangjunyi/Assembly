@@ -34,3 +34,4 @@ ld命令运行链接器</br>
 也可以打完断点使用调试控制台命令-exec info r监视所有寄存器</br>
 单步执行-exec next但感觉不如上面的方法好</br>
 在深度linux下需要安装Gnome Terminal</br>
+objdump 可执行文件 -S 反汇编可执行文件

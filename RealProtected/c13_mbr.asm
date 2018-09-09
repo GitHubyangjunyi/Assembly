@@ -101,7 +101,7 @@
          sub ebx,eax
          dec ebx                            ;公用例程段界限在ebx
          add eax,edi                        ;公用例程段基地址,用公共例程段的起始汇编地址加上内核的加载地址,就是公共例程段的基地址
-         mov ecx,0x00409800                 ;字节粒度的代码段描述符
+         mov ecx,0x00409800                 ;字节粒度的代码段描述符,特权级DPL=00
          call make_gdt_descriptor
          mov [esi+0x28],eax
          mov [esi+0x2c],edx
@@ -112,7 +112,7 @@
          sub ebx,eax
          dec ebx                            ;核心数据段界限
          add eax,edi                        ;核心数据段基地址
-         mov ecx,0x00409200                 ;字节粒度的数据段描述符 
+         mov ecx,0x00409200                 ;字节粒度的数据段描述符,特权级DPL=00
          call make_gdt_descriptor
          mov [esi+0x30],eax
          mov [esi+0x34],edx 
@@ -123,7 +123,7 @@
          sub ebx,eax
          dec ebx                            ;核心代码段界限
          add eax,edi                        ;核心代码段基地址
-         mov ecx,0x00409800                 ;字节粒度的代码段描述符(只执行)
+         mov ecx,0x00409800                 ;字节粒度的代码段描述符(只执行),特权级DPL=00
          call make_gdt_descriptor           ;构造描述符
          mov [esi+0x38],eax
          mov [esi+0x3c],edx

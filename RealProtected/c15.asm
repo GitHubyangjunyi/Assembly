@@ -62,12 +62,12 @@ start:
      
          mov ebx,message_1
          call far [fs:PrintString]
-         
-         mov ax,cs
+;第66~69行,计算当前特权级,转换成ASCII码后填写到数据段,作为第二个字符串的第一个字符,当前特权级别是由CS当前内容的低2位指示的,因此先将CS中的内容传送到AX
+         mov ax,cs                           ;接着清除AX的高6位,保留低2位,最后将这个数值加上0x30转换成可显示和打印的ASCII码,并填写到数据段中由标号message_2所指示的字节单元中
          and al,0000_0011B
          or al,0x0030
          mov [message_2],al
-         
+;第71~72行,显示包括特权级数值在内的第二个字符串,据我们所知,当前任务的特权级是3,因此显示的完整内容是:
          mov ebx,message_2
          call far [fs:PrintString]
      

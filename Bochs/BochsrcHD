@@ -28,6 +28,8 @@ boot: disk
 #config_interface: textconfig
 #config_interface: wx
 #display_library: x
+display_library: x,options="gui_debug"
+#打开上面的开关进入新世界,GUI调试
 # other choices: win32 sdl wx carbon amigaos beos macintosh nogui rfb term svga
 
 # where do we send log messages?

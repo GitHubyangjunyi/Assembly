@@ -463,7 +463,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov ecx,[edi+0x0c]                 ;4KB的倍率,从用户程序头部偏移为0x0c的地方取得一个建议的栈大小,这是一个倍率,至少应当为1,说明用户希望分配4KB的栈,如果为2,则说明用户希望分配8KB的栈,以此类推
          mov ebx,0x000fffff                 ;如果栈段的粒度是4KB,那么用0xF FFFF减去倍率,就是用来创建描述符的段界限,如果用户程序建议的倍率是2,那么意味着他想创建的栈空间为8KB,
          sub ebx,ecx                        ;得到段界限,因此段的界限值为       0xF FFFF-2=0xF FFFD,结合第12章的关于栈段的界限值计算,因为实际使用的段界限是用描述符中的段界限乘以0x1000(4KB) + 0xFFF 得到的
-         mov eax,4096                       ;0xF FFFD X 0x1000 + 0xFFF =0xFFFF DFFF,EIP的变化范围是0xFFFF DFFF~0xFFFF FFFF,刚好8KB(应该是0xFFFF E000~0xFFFF FFFF)
+         mov eax,4096                       ;0xF FFFD X 0x1000 + 0xFFF =0xFFFF DFFF,EIP的变化范围是0xFFFF DFFF~0xFFFF FFFF,刚好8KB(应该是0xFFFF E000~0xFFFF FFFF)(作者是对的,因为0xFFFF DFFF是不可用的)
          mul dword [edi+0x0c]               ;mul指令将eax=4096乘以用户程序所需的栈大小(倍率),EAX中得到以字节为单位的栈大小
          mov ecx,eax                        ;准备为堆栈分配内存,将EAX已经乘以4096的栈大小传送到ECX
          call sys_routine_seg_sel:allocate_memory;分配内存,输入：ECX=希望分配的字节数,输出：ECX=起始线性地址

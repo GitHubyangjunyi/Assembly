@@ -682,7 +682,7 @@ make_gdt_descriptor:                     ;构造描述符
 ;第464~465行,计算栈段的界限,如果栈段的粒度是4KB,那么用0xF FFFF减去倍率,就是用来创建描述符的段界限,如果用户程序建议的倍率是2,那么意味着他想创建的栈空间为8KB
 ;因此段的界限值为       0xF FFFF-2=0xF FFFD
 ;那么当处理器访问栈段时,实际使用的段界限为      0xF FFFD X 0x1000 + 0xFFF = 0xFFFF DFFF
-;栈是向下扩展的,访问32位栈要使用ESP,其最大值是0xFFFF FFFF,因此ESP的值只允许在0xFFFF DFFF和0xFFFF FFFF之间变化,共8KB(应该是0xFFFF E000~0xFFFF FFFF)
+;栈是向下扩展的,访问32位栈要使用ESP,其最大值是0xFFFF FFFF,因此ESP的值只允许在0xFFFF DFFF和0xFFFF FFFF之间变化,共8KB(应该是0xFFFF E000~0xFFFF FFFF)(作者是对的,因为0xFFFF DFFF是不可用的)
 ;第466~469行,用4096(4KB)乘以倍率,得到所需要的栈大小,然后用这个值去申请内存,这是个32位的无符号数乘法,指令格式为    mul r/m32
 ;这里用EAX的值乘以另一个32位的数(可以在通用寄存器或内存单元里),在EDX:EAX中的到64位乘法结果
 ;注意,allocate_memory过程返回所分配内存的低端地址,和一半的数据段不同,栈描述符中的基地址,应当是栈空间的高端地址

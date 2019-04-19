@@ -1,7 +1,0 @@
-CTEXT macro Text
-    local szText
-    .data
-    szText byte Text, 0
-    .code
-    exitm <offset szText>   
-endm

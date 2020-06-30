@@ -144,7 +144,7 @@ put_char:                                ;显示一个字符,并能判断回车�
          mov bx,msg0                      ;vstart=0,msg0=0
          call put_string                  ;显示第一段信息 
 
-         push word [es:code_2_segment]    ;使用retf模拟段间返回
+         push word [es:code_2_segment]    ;使用retf模拟段间返回,此时es=0x1000是用户程序头部段基地址
          mov ax,begin
          push ax                          ;可以直接push begin,80386+,8086不能在栈中压入立即数,之后的处理器可以
          
